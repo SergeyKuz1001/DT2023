@@ -87,17 +87,30 @@
 
 -- 7. Определите mod и gcd.
 
-\func mod (x y : Nat) : Nat => go 0 x y
+\func mod (x y : Nat) : Nat \elim y
+  | 0 => 0
+  | suc y' => \case go 0 x y' \with {
+      | 0 => 0
+      | r => suc (y' - r)
+    } \where
+        \func go (z x y : Nat) : Nat \elim x
+          | 0 => z
+          | suc x' => go (\case z \with { | 0 => y | suc z' => z' }) x' y
+
+\func modtest1 : mod 4 15 = 4 => idp
+\func modtest2 : mod 15 4 = 3 => idp
+
+\func gcd (x y : Nat) : Nat => go (x + y) x y
   \where
-    \func go (z x y : Nat) : Nat \elim x
-      | 0 => z
-      | suc x' => go (\case suc z \with {
-          | y => 0
-          | _ => suc z
-        }) x' y
+    \func go (z x y : Nat) : Nat \elim z
+      | 0 => 0
+      | suc z' => \case x \with {
+          | 0 => y
+          | x => go z' (mod y x) x
+        }
 
-\func tttttttt : (4 == 4) = true => idp
---\func modtest1 : mod 4 15 = 4 => idp
---\func modtest2 : mod 15 4 = 1 => idp
-
-\func gcd (x y : Nat) => {?}
+\func gcdtest1 : gcd 3 82 = 1 => idp
+\func gcdtest2 : gcd 6 14 = 2 => idp
+\func gcdtest3 : gcd 15 5 = 5 => idp
+\func gcdtest4 : gcd 72 54 = 18 => idp
+\func gcdtest5 : gcd 81 36 = 9 => idp
