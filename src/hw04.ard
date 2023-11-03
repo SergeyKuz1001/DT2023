@@ -251,18 +251,3 @@
 \func J' {A : \Type} {a : A} (B : \Pi (a' : A) -> a = a' -> \Type)
          (b : B a idp)
          {a' : A} (p : a = a') : B a' p => {?}
-
--- Optional task
--- 16. Докажите ассоциативность конкатенации векторов.
-\func v++-assoc' {A : \Type} {n m k : Nat}
-                (xs : Vec A n) (ys : Vec A m) (zs : Vec A k)
-  : transport (Vec A) (+-assoc n m k) ((xs v++ ys) v++ zs) = xs v++ (ys v++ zs)
-  \elim n, xs
-    | 0, Vec.nil => idp
-    | suc n, cons a xs => transport_cons (+-assoc n m k) ((xs v++ ys) v++ zs) *> pmap (cons a) (v++-assoc' xs ys zs)
-    \where {
-      \func transport_cons {A : \Type} {a : A} {n m : Nat} (p : n = m) (xs : Vec A n)
-        : transport (Vec A) (pmap suc p) (cons a xs) = cons a (transport (Vec A) p xs)
-      \elim p
-        | idp => idp
-    }
