@@ -1,56 +1,263 @@
 \import Data.Bool
-\import Data.List (List, length)
+\import Data.List (List, nil, ::, drop, length, take, !!)
 \import Logic
+\import Meta
+\import Paths
+\import lect04 (J, Nat-elim)
+\import lect05 (funExt)
 \import lect06
 \open Nat(+,*)
 
+\func \infixr 1 o {A B C : \Type} (g : B -> C) (f : A -> B) (x : A) : C => g (f x)
+
 -- 1. Определите предикат принадлежности элемента списку.
 
-\data In {A : \Type} (a : A) (xs : List A)
+\data In {A : \Type} (a : A) (xs : List A) \elim xs
+  | List.:: x xs => {
+    | onHead (a = x)
+    | onTail (In a xs)
+  }
+
+\func testIn : In 4 (3 :: (17 :: (4 :: (1 :: nil)))) => onTail (onTail (onHead idp))
 
 -- Optional:
 -- 2. Докажите эквивалентность четырех различных определений LessOrEq: lessOrEq, lessOrEq', LessOrEq и LessOrEq'.
+
+\func zero<=_'-lem (n : Nat) : LessOrEq' 0 n
+  => Nat-elim (\lam (k : Nat) => LessOrEq' 0 k) (<=-refl idp) (\lam _ => <=-step) n
+
+\func suc<=suc'-lem {n m : Nat} (p : LessOrEq' n m) : LessOrEq' (suc n) (suc m) \elim n, m, p
+  | n, m, <=-refl p => <=-refl (pmap suc p)
+  | n, suc m, <=-step p => <=-step (suc<=suc'-lem p)
+
+\func <=-refl_-lem {n m : Nat} (p : n = m) : LessOrEq n m
+  => transport (\lam (k : Nat) => LessOrEq n k) p (Nat-elim (\lam (k : Nat) => LessOrEq k k) zero<=_ (\lam _ => suc<=suc) n)
+
+\func <=-step_-lem {n m : Nat} (p : LessOrEq n m) : LessOrEq n (suc m) \elim n, m, p
+  | 0, m, zero<=_ => zero<=_
+  | suc n, suc m, suc<=suc p => suc<=suc (<=-step_-lem p)
+
+\func LessOrEq_->'-lem {n m : Nat} (p : LessOrEq n m) : LessOrEq' n m \elim n, m, p
+  | 0, m, zero<=_ => zero<=_'-lem m
+  | suc n, suc m, suc<=suc p => suc<=suc'-lem (LessOrEq_->'-lem p)
+
+\func LessOrEq'->_-lem {n m : Nat} (p : LessOrEq' n m) : LessOrEq n m \elim n, m, p
+  | n, m, <=-refl p => <=-refl_-lem p
+  | n, suc m, <=-step p => <=-step_-lem (LessOrEq'->_-lem p)
+
+\func l->LessOrEq-lem {n m : Nat} (p : lessOrEq n m) : LessOrEq n m \elim n, m, p
+  | 0, _, _ => zero<=_
+  | suc _, 0, (_, p) => \case p
+  | suc n, suc m, (k, p) => suc<=suc (l->LessOrEq-lem (k, pmap pred p))
+
+\func L->lessOrEq-lem {n m : Nat} (p : LessOrEq n m) : lessOrEq n m \elim n, m, p
+  | 0, m, zero<=_ => (m, idp)
+  | suc n, suc m, suc<=suc p => \case L->lessOrEq-lem p \with {
+    | (k, q) => (k, pmap suc q)
+  }
+
+\func l->LessOrEq'->_-lem {n m : Nat} (p : lessOrEq' n m) : LessOrEq n m \elim n, m, p
+  | 0, _, _ => zero<=_
+  | suc n, suc m, p => suc<=suc (l->LessOrEq'->_-lem p)
+
+\func L->lessOrEq_->'-lem {n m : Nat} (p : LessOrEq n m) : lessOrEq' n m \elim n, m, p
+  | 0, m, zero<=_ => ()
+  | suc n, suc m, suc<=suc p => L->lessOrEq_->'-lem p
+
+\func lessOrEq-equiv (n m : Nat) :
+  \Sigma
+    (lessOrEq n m -> lessOrEq' n m)
+    (lessOrEq' n m -> LessOrEq n m)
+    (LessOrEq n m -> LessOrEq' n m)
+    (LessOrEq' n m -> lessOrEq n m)
+  => (
+    L->lessOrEq_->'-lem o l->LessOrEq-lem,
+    l->LessOrEq'->_-lem,
+    LessOrEq_->'-lem,
+    L->lessOrEq-lem o LessOrEq'->_-lem)
 
 -- 3. Определите рефлексивное транзитивное замыкание отношения.
 --    То есть ReflTransClosure R -- это минимальное рефлексивное и транзитивное отношение, содержащее R.
 
 \data ReflTransClosure {A : \Type} (R : A -> A -> \Type) (x y : A)
+  | fromR (R x y)
+  | fromRefl (x = y)
+  | fromTrans (\Sigma (z : A) (\Sigma (R x z) (ReflTransClosure R z y)))
+
+\func testRTC_R (x y : Nat) : \Type => \case x, y \with {
+  | 3, 5 => \Sigma
+  | 5, 7 => \Sigma
+  | 1, 6 => \Sigma
+  | _, _ => Empty
+}
+\func testRTC1 : ReflTransClosure testRTC_R 2 2 => fromRefl idp
+\func testRTC2 : ReflTransClosure testRTC_R 1 6 => fromR ()
+\func testRTC3 : ReflTransClosure testRTC_R 3 7 => fromTrans (5, ((), fromR ()))
 
 -- 4. Докажите, что если R уже рекфлексивно и транзитивно, то ReflTransClosure R эквивалентно R.
 
 \func \infix 4 <-> (A B : \Type) => \Sigma (A -> B) (B -> A)
 
-\func ReflTransClosure-lem {A : \Type} (R : A -> A -> \Type) (refl : \Pi (x : A) -> R x x) (trans : \Pi (x y z : A) -> R x y -> R y z -> R x z)
-  : \Pi (x y : A) -> R x y <-> ReflTransClosure R x y
-  => {?}
+\func ReflTransClosure-lem' {A : \Type} (R : A -> A -> \Type) (refl : \Pi (x : A) -> R x x) (trans : \Pi (x y z : A) -> R x y -> R y z -> R x z) (x y : A) (q : ReflTransClosure R x y) : R x y \elim q
+  | fromR r => r
+  | fromRefl p => transport (\lam (z : A) => R x z) p (refl x)
+  | fromTrans (z, (p, q)) => trans x z y p (ReflTransClosure-lem' R refl trans z y q)
+
+\func ReflTransClosure-lem {A : \Type} (R : A -> A -> \Type) (refl : \Pi (x : A) -> R x x) (trans : \Pi (x y z : A) -> R x y -> R y z -> R x z) (x y : A) :
+  R x y <-> ReflTransClosure R x y
+  => (
+    \lam (p : R x y) => fromR p,
+    ReflTransClosure-lem' R refl trans x y
+  )
 
 -- 5. Определите предикат Sublist xs ys на списках, означающий "список xs является подсписком ys".
 
+\data Sublist {A : \Type} (xs ys : List A) \with
+  | nil, _ => subForEmpty
+  | :: x xs, :: y ys => subForHeads (x = y) (Sublist xs ys)
+  | xs, :: y ys => subForShift (Sublist xs ys)
+
 -- 6. Докажите, что Sublist (filter p xs) xs для любых p и xs.
+
+\func SublistFilter-lem {A : \Type} (p : A -> Bool) (xs : List A) : Sublist (filter p xs) xs \elim xs
+  | nil => subForEmpty
+  | :: x xs => cases (p x) \with {
+    | false => subForShift (SublistFilter-lem p xs)
+    | true => subForHeads idp (SublistFilter-lem p xs)
+  }
 
 -- 7. Определите filter через if, а не через \case.
 --     Докажите для этой версии filter лемму filter-lem.
 
-\func filter' {A : \Type} (p : A -> Bool) (xs : List A) : List A => {?}
+\func filter' {A : \Type} (p : A -> Bool) (xs : List A) : List A \elim xs
+  | nil => nil
+  | :: x xs => if (p x) (:: x (filter' p xs)) (filter' p xs)
 
-\func filter-lem {A : \Type} (p : A -> Bool) (xs : List A) : LessOrEq (length (filter' p xs)) (length xs) => {?}
+\func testFilter' : filter' isEven (1 :: (2 :: (3 :: (4 :: (5 :: nil))))) = (2 :: (4 :: nil)) => idp
+
+\func filter-lem {A : \Type} (p : A -> Bool) (xs : List A) : LessOrEq (length (filter' p xs)) (length xs) \elim xs
+  | nil => zero<=_
+  | :: x xs => cases (p x) \with {
+    | false => <=-step_-lem (filter-lem p xs)
+    | true => suc<=suc (filter-lem p xs)
+  }
 
 -- 8. Закончите определение функции \func BoolFuncLem (f : Bool -> Bool) (x : Bool) : f (f (f x)) = f x из лекции.
 
+\func BoolFuncConst (f : Bool -> Bool) (p : f true = f false) (x : Bool) : f x = f false \elim x
+  | false => idp
+  | true  => p
+
+\func BoolFuncId (f : Bool -> Bool) (p : f true = true) (q : f false = false) (x : Bool) : f x = x \elim x
+  | false => q
+  | true => p
+
+\func BoolFuncNot (f : Bool -> Bool) (p : f true = false) (q : f false = true) (x : Bool) : f x = not x \elim x
+  | false => q
+  | true => p
+
+\func Not^2 (x : Bool) : not (not x) = x \elim x
+  | false => idp
+  | true => idp
+
+\func BoolFuncLem (f : Bool -> Bool) (x : Bool) : f (f (f x)) = f x
+  => cases (f false arg addPath, f true arg addPath) \with {
+    | false, p, false, q =>
+        f (f (f x)) ==< BoolFuncConst f (q *> inv p) (f (f x)) >==
+        f false     ==< inv (BoolFuncConst f (q *> inv p) x) >==
+        f x         `qed
+    | false, p, true,  q =>
+        f (f (f x)) ==< BoolFuncId f q p (f (f x)) >==
+        f (f x)     ==< BoolFuncId f q p (f x) >==
+        f x         `qed
+    | true,  p, false, q =>
+        f (f (f x))     ==< BoolFuncNot f q p (f (f x)) >==
+        not (f (f x))   ==< pmap not (BoolFuncNot f q p (f x)) >==
+        not (not (f x)) ==< Not^2 (f x) >==
+        f x             `qed
+    | true,  p, true,  q =>
+        f (f (f x)) ==< BoolFuncConst f (q *> inv p) (f (f x)) >==
+        f false     ==< inv (BoolFuncConst f (q *> inv p) x) >==
+        f x         `qed
+  }
+
 -- 9. Докажите, что предикат isEven разрешим.
 
-\func isEven (n : Nat) => \Sigma (k : Nat) (n = 2 * k)
+\func IsEven' (n : Nat) => \Sigma (k : Nat) (n = 2 * k)
 
-\func isEven-dec : DecPred isEven => {?}
+\func IsEven'unsuc^2 {n : Nat} (p : IsEven' (suc (suc n))) : IsEven' n \elim n
+  | 0 => (0, idp)
+  | suc n => (pred p.1, cases (p.1, p.2) \with { | suc m, q => pmap (pred o pred) q })
+
+\func isEven-dec : DecPred IsEven'
+  => helper
+  \where {
+    \func helper (n : Nat) : Decide (IsEven' n) \elim n
+      | 0 => yes (0, idp)
+      | 1 => no (\lam (p : \Sigma (k : Nat) (1 = 2 * k)) => cases (p.1, p.2) \with { | 0, () })
+      | suc (suc n) => \case helper n \with {
+        | yes p => yes (suc p.1, pmap (suc o suc) p.2)
+        | no np => no (np o IsEven'unsuc^2)
+      }
+  }
 
 -- 10. Докажите, что если равенство элементов A разрешимо, то и равенство элементов List A тоже разрешимо.
 
+\func pmapHead {A : \Type} {x y : A} {xs ys : List A} (p : x :: xs = y :: ys) : x = y => \lam (i : I)
+  => \case p i \return A \with {
+      | nil => x
+      | :: z zs => z
+    }
+
 \instance ListEq {A : \Type} (dec : Eq A) : Eq (List A)
-  | decideEq => {?}
+  | decideEq (xs ys : List A) : Decide (xs = ys) \elim xs, ys {
+    | List.nil, List.nil => yes idp
+    | List.nil, List.:: y ys => no (\lam p => \case p)
+    | List.:: x xs, List.nil => no (\lam p => \case p)
+    | List.:: x xs, List.:: y ys => cases (dec.decideEq x y, decideEq xs ys) \with {
+      | yes p, yes ps => yes (pmap2 (List.::) p ps)
+      | no np, yes ps => no (\lam pa => np (pmapHead pa))
+      | _,     no nps => no (\lam pa => nps (pmap (drop 1) pa))
+    }
+  }
 
 -- 11. Докажите, что функции FromBoolToDec и FromDecToBool взаимно обратны.
 
-\func bdb {A : \Type} (p : A -> Bool) : FromDecToBool (FromBoolToDec p) = p => {?}
+\func pairUnext {A : \Type} {B : A -> \Type} {p q : \Sigma (a : A) (B a)} (t : p = q) : \Sigma (t' : p.1 = q.1) (transport B t' p.2 = q.2)
+  => (
+    pmap (\lam w => w.1) t,
+    transport
+      (\lam (t' : p = q) => transport B (pmap (\lam (e : \Sigma (a : A) (B a)) => e.1) t') p.2 = q.2)
+      (inv^2=id-lem t)
+      (J (\lam (w : \Sigma (a : A) (B a)) (r : q = w) => transport B (pmap (\lam e => e.1) (inv r)) w.2 = q.2) idp (inv t))
+  )
+  \where {
+    \func inv^2=id-lem {A : \Type} {a a' : A} (p : a = a') : inv (inv p) = p \elim p
+      | idp => idp
+  }
+
+\func transportConstType-lem {A B : \Type} {b b' : B} (p : b = b') (a : A) : transport (\lam _ => A) p a = a => idp
+
+\func DecideIsProp-lem {A : \Type} (p : \Pi (a a' : A) -> a = a') (dx dy : Decide A) : dx = dy \elim dx, dy
+  | yes x, yes y => pmap yes (p x y)
+  | yes x, no ny => \case ny x
+  | no nx, yes y => \case nx y
+  | no nx, no ny => pmap no (funExt \lam (a : A) => \case nx a)
+
+\func Sigma=*-lem (x : \Sigma) : x = () \elim x | () => idp
+
+\func So'IsProp-lem {b : Bool} (x : So' b) (y : So' b) : x = y \elim b
+  | false => \case x
+  | true => Sigma=*-lem x *> inv (Sigma=*-lem y)
+
+\func bdb {A : \Type} (p : A -> Bool) : FromDecToBool (FromBoolToDec p) = p
+  => funExt (\lam (a : A) => cases (p a arg addPath, ((FromBoolToDec p).1 a, (FromBoolToDec p).2 a) arg addPath) \with {
+    | false, q, (Pa, dPa), q' => cases (transport Decide (pmap So' q) dPa arg addPath) \with {
+      | yes e, _ => \case e
+      | no ne, r => {?}
+    }
+    | true,  q, (Pa, dPa), q' => {?}
+  })
 
 -- Мы не можем доказать, что FromBoolToDec (FromDecToBool P) = P, но мы можем доказать более слабое утверждение: эти предикаты логически эквивалентны.
 -- Для этого введем эквивалентность предикатов.

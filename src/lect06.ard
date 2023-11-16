@@ -205,7 +205,11 @@ n <= suc m
 
 -- Разрешимые предикаты вида A -> \Type в точности соответствуют функциям вида A -> Bool.
 
-\func So-dec {b : Bool} : Decide (So b) \elim b
+\func So' (b : Bool) : \Type \elim b
+  | false => Empty
+  | true => \Sigma
+
+\func So-dec {b : Bool} : Decide (So' b) \elim b
   | false => no \lam e => e
   | true => yes ()
 
@@ -213,7 +217,7 @@ n <= suc m
 -- Эти функции почти взаимно обратны. Это будет верно, если правильно сформулировать это утверждение.
 \func FromBoolToDec {A : \Type} (p : A -> Bool)
   : \Sigma (P : A -> \Type) (DecPred P)
-  => (\lam a => So (p a), \lam a => So-dec)
+  => (\lam a => So' (p a), \lam a => So-dec)
 
 \func FromDecToBool {A : \Type} (P : \Sigma (P : A -> \Type) (DecPred P)) : A -> Bool
   => \lam a => \case P.2 a \with {
@@ -318,7 +322,7 @@ n <= suc m
 \func filter-lem {A : \Type} (p : A -> Bool) (xs : List A)
   : LessOrEq (length (filter p xs)) (length xs) \elim xs
   | nil => zero<=_
-  | a :: xs => \case p a \as b \return
+  | :: a xs => \case p a \as b \return
                                     LessOrEq (length (\case b \with {
                                       | true => a :: filter p xs
                                       | false => filter p xs
@@ -334,7 +338,7 @@ n <= suc m
 \func filter-lem' {A : \Type} (p : A -> Bool) (xs : List A)
   : LessOrEq (length (filter p xs)) (length xs) \elim xs
   | nil => zero<=_
-  | a :: xs => cases (p a) \with {
+  | :: a xs => cases (p a) \with {
     | false => <=-helper (filter-lem p xs)
     | true => suc<=suc (filter-lem p xs)
   }
@@ -343,7 +347,7 @@ n <= suc m
 \func filter-lem'' {A : \Type} (p : A -> Bool) (xs : List A)
   : LessOrEq (length (filter p xs)) (length xs) \elim xs
   | nil => zero<=_
-  | a :: xs => mcases \with {
+  | :: a xs => mcases \with {
     | false => <=-helper (filter-lem p xs)
     | true => suc<=suc (filter-lem p xs)
   }
