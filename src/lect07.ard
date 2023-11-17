@@ -342,15 +342,15 @@
 \instance ListFunctor : Functor List
   | fmap {A B : \Set} (f : A -> B) (xs : List A) : List B \elim xs {
     | List.nil => List.nil
-    | a List.:: xs => f a List.:: fmap f xs
+    | List.:: a xs => f a List.:: fmap f xs
   }
   | fmap-id {A : \Set} (xs : List A) : fmap (\lam a => a) xs = xs \elim xs {
     | List.nil => idp
-    | a List.:: xs => pmap (a List.::) (fmap-id xs)
+    | List.:: a xs => pmap (a List.::) (fmap-id xs)
   }
   | fmap-comp {A B C : \Set} (f : A -> B) (g : B -> C) (xs : List A) : fmap (\lam a => g (f a)) xs = fmap g (fmap f xs) \elim xs {
     | List.nil => idp
-    | a List.:: xs => pmap (_ List.::) (fmap-comp f g xs)
+    | List.:: a xs => pmap (_ List.::) (fmap-comp f g xs)
   }
 
 -- 10. Arrays

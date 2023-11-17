@@ -1,46 +1,117 @@
+\import Data.Bool
 \import Data.Maybe
 \import Logic
+\import Meta
+\import Paths
+\import hw01 (gcd)
+\import lect05 (funExt)
 \import lect07
-\open Nat(+)
+
+\func \infixr 1 o {A B C : \Type} (g : B -> C) (f : A -> B) (x : A) : C => g (f x)
 
 -- 1. Определите функцию swap несколькими способами.
 
 -- При помощи \cowith и доступа к полям.
-\func swap {A B : \Type} (p : Pair A B) : Pair B A => {?}
+\func swap {A B : \Type} (p : Pair A B) : Pair B A \cowith
+  | fst_ => p.snd_
+  | snd_ => p.fst_
 
 -- При помощи \new и паттерн матчинга.
-\func swap' {A B : \Type} (p : Pair A B) : Pair B A => {?}
+\func swap' {A B : \Type} (p : Pair A B) : Pair B A \with
+  | (a, b) => \new Pair { | fst_ => b | snd_ => a }
 
 -- При помощи \new и доступа к полям.
-\func swap'' {A B : \Type} (p : Pair A B) : Pair B A => {?}
+\func swap'' {A B : \Type} (p : Pair A B) : Pair B A
+  => \new Pair p.B p.A p.snd_ p.fst_
 
 -- 2. Докажите, что swap (swap p) = p.
 
-\func swap-involutive {A B : \Type} (p : Pair A B) : swap (swap p) = p => {?}
+\func swap-involutive {A B : \Type} (p : Pair A B) : swap (swap p) = p => idp
 
 -- 3. Докажите, что тип PosNat 0 пустой, а тип PosNat 1 нет.
 
-\func zero-isNotPos (p : PosNat 0) : Empty => {?}
+\func zero-isNotPos (p : PosNat 0) : Empty => \case p.p
 
-\func one-isPos : PosNat 1 => {?}
+\func one-isPos : PosNat 1 => \new PosNat { | p => so }
 
 -- 4. Определите \record, состоящий из пар взаимно простых натуральных чисел.
 --    Определите тип, состоящий из натуральных чисел, взаимно простых с 60.
+
+\record MPNPair
+  | n : Nat
+  | m : Nat
+  | p : gcd n m = 1
+
+\func MPNPair60 (n : Nat) => MPNPair 60
 
 -- 5. Закончите определение класса монад. Этот класс должен содержать все монадные законы и реализовывать все поля из класса функторов.
 
 \class Monad \extends Functor
   | return {A : \Set} : A -> F A
   | \infixl 1 >>= {A B : \Set} : F A -> (A -> F B) -> F B
+  | idLeftM {A B : \Set} (a : A) (k : A -> F B) : (return a >>= k) = k a
+  | idRightM {A : \Set} (m : F A) : (m >>= return) = m
+  | assocM {A B C : \Set} (m : F A) (k : A -> F B) (k' : B -> F C) : (m >>= k >>= k') = (m >>= (\lam x => k x >>= k'))
+  | fmap f x => x >>= (return o f)
+  | fmap-id x =>
+      fmap (\lam a => a) x ==< idp >==
+      (x >>= (return o (\lam a => a))) ==< idp >==
+      (x >>= return) ==< idRightM x >==
+      x `qed
+  | fmap-comp f g x =>
+      fmap (\lam a => g (f a)) x ==< idp >==
+      (x >>= (return o \lam a => g (f a))) ==< idp >==
+      (x >>= (\lam a => (return o g) (f a))) ==< pmap (>>= x) (inv (funExt (\lam a => idLeftM (f a) (return o g)))) >==
+      (x >>= (\lam a => return (f a) >>= (return o g))) ==< inv (assocM x (return o f) (return o g)) >==
+      (x >>= (return o f) >>= (return o g)) ==< idp >==
+      fmap g (fmap f x) `qed
 
 -- 6. Определите \instance Monad для Maybe.
 
-\instance MaybeMonad : Monad Maybe => {?}
+\instance MaybeMonad : Monad Maybe
+  | return a => just a
+  | >>= m k => \case m \with {
+    | nothing => nothing
+    | just a => k a
+  }
+  | idLeftM a k => idp
+  | idRightM m => cases m \with { | nothing => idp | just a => idp }
+  | assocM m k k' => cases m \with { | nothing => idp | just a => idp }
 
 -- 7. Определите \instance Monad для State и State'.
 
 \record State (S A : \Type)
   | state : S -> \Sigma S A
 
+\instance StateMonad (S : \Set) : Monad (State S)
+  | return a => \new State { | state s => (s, a) }
+  | >>= m k => \new State { | state s => \let (s', a) => state {m} s \in state {k a} s' }
+  | idLeftM a k => idp
+  | idRightM m => idp
+  | assocM m k k' => idp
+
 \data State' (S A : \Type)
   | state' (S -> \Sigma S A)
+
+\func unstate' {S A : \Type} (m : State' S A) (s : S) : \Sigma S A \elim m
+  | state' f => f s
+
+\func state'ounstate' {S A : \Type} (m : State' S A) : state' (unstate' m) = m \elim m
+  | state' _ => idp
+
+\instance State'Monad (S : \Set) : Monad (State' S)
+  | return a => state' (\lam s => (s, a))
+  | >>= m k => state' (\lam s => \let (s', a) => unstate' m s \in unstate' (k a) s')
+  | idLeftM a k =>
+      (\lam b => state' (\lam s => \let (s', a') => unstate' (state' (\lam s => (s, b))) s \in unstate' (k a') s')) a ==< idp >==
+      (\lam b => state' (unstate' (k b))) a ==< state'ounstate' (k a) >==
+      k a `qed
+  | idRightM m =>
+      state' (\lam s => \let (s', a) => unstate' m s \in unstate' (state' (\lam s => (s, a))) s') ==< idp >==
+      state' (unstate' m) ==< state'ounstate' m >==
+      m `qed
+  | assocM m k k' =>
+      state' (\lam s => \let (s', a) => unstate' (state' (\lam s => \let (s', a) => unstate' m s \in unstate' (k a) s')) s \in unstate' (k' a) s') ==< idp >==
+      state' (\lam s => \let (s'', a) => \let (s', a) => unstate' m s \in unstate' (k a) s' \in unstate' (k' a) s'') ==< idp >==
+      state' (\lam s => \let (s'', a) => unstate' m s \in \let (s', a) => unstate' (k a) s'' \in unstate' (k' a) s') ==< idp >==
+      state' (\lam s => \let (s', a) => unstate' m s \in unstate' ((\lam x => state' (\lam s => \let (s', a) => unstate' (k x) s \in unstate' (k' a) s')) a) s') `qed
