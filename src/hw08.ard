@@ -1,6 +1,13 @@
 \import Data.Bool
-\import Data.List \hiding (headDef)
+\import Data.List
+\import Data.Or
+\import Logic (Empty)
+\import Meta
+\import Paths
+\import Set (DecSet, no, yes)
+\import hw03 (reverse, reverse++)
 \import hw06
+\import lect06 (pred)
 \import lect08
 \import Order.LinearOrder
 \open LinearOrder
@@ -10,23 +17,389 @@
 --    * Все элементы filter p xs удовлетворяют предикату p
 --    * Любой подсписок xs с тем же свойством является подсписком filter p xs
 
+\func filter {A : \Type} (p : A -> Bool) (xs : List A) : List A \elim xs
+  | nil => nil
+  | :: a xs => if (p a) (a :: filter p xs) (filter p xs)
+
+\func filter-isSublist-lem {A : \Type} {p : A -> Bool} {xs : List A} : Sublist (filter p xs) xs \elim xs
+  | nil => subForEmpty
+  | :: a xs => cases (p a) \with {
+    | false => subForShift filter-isSublist-lem
+    | true => subForHeads idp filter-isSublist-lem
+  }
+
+\func all {A : \Type} (p : A -> Bool) (xs : List A) : Bool \elim xs
+  | nil => true
+  | :: a xs => p a Data.Bool.and all p xs
+
+\func filter-checkP-lem {A : \Type} {p : A -> Bool} {xs : List A} : all p (filter p xs) = true \elim xs
+  | nil => idp
+  | :: a xs => cases (p a arg addPath) \with {
+    | false, _ => filter-checkP-lem
+    | true, q => transport (__ Data.Bool.and all p (filter p xs) = true) (inv q) (filter-checkP-lem {A} {p} {xs})
+  }
+
+\func filter-maxSublist-lem {A : \Type} {p : A -> Bool} {xs ys : List A} {q : Sublist ys xs} {r : all p ys = true} : Sublist ys (filter p xs) \elim xs, ys, q
+  | xs, nil, subForEmpty => subForEmpty
+  | :: x xs, :: y ys, subForHeads y=x q => cases (p x, transport (p __ = true) y=x (Data.Bool.and.toSigma r).1) \with {
+    | true, _ => subForHeads y=x (filter-maxSublist-lem {A} {p} {xs} {ys} {q} {(Data.Bool.and.toSigma r).2})
+  }
+  | :: x xs, ys, subForShift q => cases (p x) \with {
+    | false => filter-maxSublist-lem {A} {p} {xs} {ys} {q} {r}
+    | true => subForShift (filter-maxSublist-lem {A} {p} {xs} {ys} {q} {r})
+  }
+
 -- 2. Докажите, что Perm l1 l2 тогда и только тогда, когда Insertion.sort l1 = Insertion.sort l2.
+
+\func cons-= {A : \Type} {x y : A} {xs ys : List A} (x=y : x = y) (xs=ys : xs = ys) : x :: xs = y :: ys
+  => transport2 (\lam z zs => x :: xs = z :: zs) x=y xs=ys idp
+
+\func transport3 {A B C : \Type} (D : A -> B -> C -> \Type) {a a' : A} {b b' : B} {c c' : C} (p : a = a') (q : b = b') (r : c = c') (d : D a b c) : D a' b' c' \elim p, q, r
+  | idp, idp, idp => d
+
+\func cons2-= {A : \Type} {x x' y y' : A} {xs ys : List A} (x=y : x = y) (x'=y' : x' = y') (xs=ys : xs = ys) : x :: x' :: xs = y :: y' :: ys
+  => transport3 (\lam z z' zs => x :: x' :: xs = z :: z' :: zs) x=y x'=y' xs=ys idp
+
+\module Perm-lems \where {
+  \func perm-= {A : \Type} {xs ys : List A} (p : xs = ys) : Perm xs ys => transport (Perm xs) p perm-refl
+  \func \infixr 9 perm-*> {A : \Type} {xs ys zs : List A} (p : Perm xs ys) (q : Perm ys zs) : Perm xs zs => perm-trans p q
+  \func perm-=nil {A : \Type} {xs ys : List A} (p : Perm xs ys) (q : xs = nil) : ys = nil \elim xs, ys, p
+    | nil, nil, perm-nil => idp
+    | :: _ _, :: _ _, perm-cons _ _ => \case q
+    | _, _, perm-trans p1 p2 => perm-=nil p2 (perm-=nil p1 q)
+    | :: _ (:: _ _), :: _ (:: _ _), perm-swap _ _ _ => \case q
+  \func perm-nil_ {A : \Type} {xs : List A} (p : Perm nil xs) : xs = nil => perm-=nil p idp
+  \func perm-inv {A : \Type} {xs ys : List A} (p : Perm xs ys) : Perm ys xs \elim xs, ys, p
+    | nil, nil, perm-nil => perm-nil
+    | :: x xs, :: y ys, perm-cons p p1 => perm-cons (inv p) (perm-inv p1)
+    | xs, ys, perm-trans p1 p2 => perm-trans (perm-inv p2) (perm-inv p1)
+    | :: x (:: x' xs), :: y (:: y' ys), perm-swap p1 p2 p3 => perm-swap (inv p2) (inv p1) (inv p3)
+  \func perm-insert {A : Dec} {x : A} {xs : List A} : Perm (Insertion.sort.insert x xs) (x :: xs) \elim xs
+    | nil => perm-refl
+    | :: x' xs => mcases \with {
+      | inl x'<x  => perm-cons idp perm-insert perm-*> perm-swap idp idp idp
+      | inr x<=x' => perm-refl
+    }
+  \func perm-sort {A : Dec} {xs : List A} : Perm xs (Insertion.sort xs) => Insertion.sort-perm xs
+  \func perm-head {A : Dec} {x y : A} {xs ys : List A} (p1 : Perm (x :: xs) (y :: ys)) (p2 : Perm xs ys) : x = y
+    => insert-into-same-lem (Perm->insSort xs ys p2) (Perm->insSort (x :: xs) (y :: ys) p1)
+    \where {
+      \func half-insert-into-same-lem {A : Dec} {x y : A} {xs ys : List A} (xs=ys : xs = ys) (p : Insertion.sort.insert x xs = y :: ys) : x = y \elim xs, ys
+        | nil, nil => pmapHead p
+        | nil, :: y' ys => \case xs=ys
+        | :: x' xs, nil => \case xs=ys
+        | :: x' xs, :: y' ys => cases (dec<_<= x' x, p) \with {
+          | inl x'<x,  p => half-insert-into-same-lem (pmapTail xs=ys) (pmapTail (p *> cons2-= (inv (pmapHead p)) (inv (pmapHead xs=ys) *> pmapHead p) idp))
+          | inr x<=x', p => pmapHead p
+        }
+      \func insert-into-same-lem {A : Dec} {x y : A} {xs ys : List A} (xs=ys : xs = ys) (p : Insertion.sort.insert x xs = Insertion.sort.insert y ys) : x = y \elim xs, ys
+        | nil, nil => pmapHead p
+        | nil, :: y' ys => \case xs=ys
+        | :: x' xs, nil => \case xs=ys
+        | :: x' xs, :: y' ys => cases (dec<_<= x' x, dec<_<= y' y, p) \with {
+          | inl x'<x,  inl y'<y,  p => insert-into-same-lem (pmapTail xs=ys) (pmapTail p)
+          | inl x'<x,  inr y'<y,  p => half-insert-into-same-lem (pmapTail xs=ys) (pmapTail (p *> cons2-= (inv (pmapHead p)) (inv (pmapHead xs=ys) *> pmapHead p) idp))
+          | inr x<=x', inl y<=y', p => inv (half-insert-into-same-lem (inv (pmapTail xs=ys)) (pmapTail (inv p *> cons2-= (pmapHead p) (pmapHead xs=ys *> inv (pmapHead p)) idp)))
+          | inr x<=x', inr y<=y', p => pmapHead p
+        }
+    }
+  \func perm-tail {A : Dec} {x y : A} {xs ys : List A} (x=y : x = y) (p : Perm (x :: xs) (y :: ys)) : Perm xs ys
+    => perm-sort perm-*> perm-= (deinsert-on-sorted-lem x=y (Perm->insSort (x :: xs) (y :: ys) p) (Insertion.sort-sorted xs) (Insertion.sort-sorted ys)) perm-*> perm-inv perm-sort
+    \where {
+      \func lenInsert {A : Dec} {x : A} {xs : List A} : length (Insertion.sort.insert x xs) = suc (length xs) \elim xs
+        | nil => idp
+        | :: x' xs => mcases \with {
+          | inl x'<x => pmap suc lenInsert
+          | inr x<=x' => idp
+        }
+
+      \func <-not-= {A : Dec} {x y : A} (p : x A.< y) (q : x = y) : Empty =>
+        A.<-irreflexive {y} (transport (__ A.< y) q p)
+
+      \func insert-min-lem {A : Dec} (x : A) (xs : List A) (x<=hd : x <= headDef x xs) : Insertion.sort.insert x xs = x :: xs \elim xs
+        | nil => idp
+        | :: x' xs => mcases \with {
+          | inl x'<x => \case x<=hd x'<x
+          | inr x<=x' => idp
+        }
+
+      \func half-deinsert-on-same-lem {A : Dec} {x y : A} {xs ys : List A} (x=y : x = y) (p : Insertion.sort.insert x xs = y :: ys) : xs = ys \elim xs, ys
+        | nil, nil => idp
+        | nil, :: y' ys => \case p
+        | :: x' xs, nil => cases (dec<_<= x' x, p) \with {
+          | inl x'<x, p => \case inv lenInsert *> pmap length (pmapTail p)
+          | inr x<=x', p => \case p
+        }
+        | :: x' xs, :: y' ys => cases (dec<_<= x' x, p) \with {
+          | inl x'<x, p => \case <-not-= x'<x (pmapHead p *> inv x=y)
+          | inr x<=x', p => pmapTail p
+        }
+
+      \func deinsert-on-sorted-lem {A : Dec} {x y : A} {xs ys : List A} (x=y : x = y) (p : Insertion.sort.insert x xs = Insertion.sort.insert y ys) (sx : Sorted xs) (sy : Sorted ys) : xs = ys \elim xs, ys, sx, sy
+        | nil, nil, sorted-nil, sorted-nil => idp
+        | nil, :: y' ys, sorted-nil, sorted-cons y'<=hd sy' => cases (dec<_<= y' y, p) \with {
+          | inl y'<y, p => \case pmap length (pmapTail p) *> lenInsert
+        }
+        | :: x' xs, nil, sorted-cons x'<=hd sx', sorted-nil => cases (dec<_<= x' x, p) \with {
+          | inl x'<x, p => \case inv lenInsert *> pmap length (pmapTail p)
+        }
+        | :: x' xs, :: y' ys, sorted-cons x'<=hd sx', sorted-cons y'<=hd sy' => cases (dec<_<= x' x, dec<_<= y' y, p) \with {
+          | inl x'<x, inl y'<y, p => cons-= (pmapHead p) (deinsert-on-sorted-lem x=y (pmapTail p) sx' sy')
+          | inl x'<x, inr y<=y', p => cons-= (pmapHead p *> inv x=y) idp *> inv (insert-min-lem x xs (transport (\lam z => z <= headDef z xs) (pmapHead p *> inv x=y) x'<=hd)) *> pmapTail p
+          | inr x<=x', inl y'<y, p => pmapTail p *> insert-min-lem y ys (transport (\lam z => z <= headDef z ys) (inv (pmapHead p) *> x=y) y'<=hd) *> cons-= (inv x=y *> pmapHead p) idp
+          | inr x<=x', inr y<=y', p => pmapTail p
+        }
+    }
+    \func perm-delete2 {A : Dec} {x y : A} {xs ys : List A} (x=y : x = y) (p : Perm xs ys) : Perm (delete x xs) (delete y ys) \elim xs, ys, p
+      | nil, nil, perm-nil => perm-nil
+      | :: x' xs, :: y' ys, perm-cons x'=y' p' => mcases \with {
+        | yes x=x', yes y=y' => p'
+        | yes x=x', no y/=y' => \case y/=y' (inv x=y *> x=x' *> x'=y')
+        | no x/=x', yes y=y' => \case x/=x' (x=y *> y=y' *> inv x'=y')
+        | no x/=x', no y/=y' => perm-cons x'=y' (perm-delete2 x=y p')
+      }
+      | xs, ys, perm-trans p1 p2 => perm-delete2 x=y p1 perm-*> perm-delete2 idp p2
+      | :: x' (:: x'' xs), :: y' (:: y'' ys), perm-swap x'=y'' x''=y' xs=ys => mcases \with {
+        | yes x=x', yes x=x'', yes y=y', yes y=y'' => perm-cons (inv x=x'' *> x=x' *> x'=y'') (perm-= xs=ys)
+        | yes x=x', yes x=x'', yes y=y', no y/=y'' => \case y/=y'' (inv x=y *> x=x' *> x'=y'')
+        | yes x=x', yes x=x'', no y/=y', yes y=y'' => \case y/=y' (inv x=y *> x=x'' *> x''=y')
+        | yes x=x', yes x=x'', no y/=y', no y/=y'' => \case y/=y'' (inv x=y *> x=x' *> x'=y'')
+        | yes x=x', no x/=x'', yes y=y', yes y=y'' => \case x/=x'' (x=y *> y=y' *> inv x''=y')
+        | yes x=x', no x/=x'', yes y=y', no y/=y'' => \case y/=y'' (inv x=y *> x=x' *> x'=y'')
+        | yes x=x', no x/=x'', no y/=y', yes y=y'' => mcases \with {
+          | yes y=y'' => perm-cons x''=y' (perm-= xs=ys)
+          | no y/=y'' => \case y/=y'' y=y''
+        }
+        | yes x=x', no x/=x'', no y/=y', no y/=y'' => \case y/=y'' (inv x=y *> x=x' *> x'=y'')
+        | no x/=x', yes x=x'', yes y=y', yes y=y'' => \case x/=x' (x=y *> y=y'' *> inv x'=y'')
+        | no x/=x', yes x=x'', yes y=y', no y/=y'' => mcases \with {
+          | yes x=x'' => perm-cons x'=y'' (perm-= xs=ys)
+          | no x/=x'' => \case x/=x'' x=x''
+        }
+        | no x/=x', yes x=x'', no y/=y', yes y=y'' => \case y/=y' (inv x=y *> x=x'' *> x''=y')
+        | no x/=x', yes x=x'', no y/=y', no y/=y'' => \case y/=y' (inv x=y *> x=x'' *> x''=y')
+        | no x/=x', no x/=x'', yes y=y', yes y=y'' => \case x/=x'' (x=y *> y=y' *> inv x''=y')
+        | no x/=x', no x/=x'', yes y=y', no y/=y'' => \case x/=x'' (x=y *> y=y' *> inv x''=y')
+        | no x/=x', no x/=x'', no y/=y', yes y=y'' => \case x/=x' (x=y *> y=y'' *> inv x'=y'')
+        | no x/=x', no x/=x'', no y/=y', no y/=y'' => mcases \with {
+          | yes x=x'', yes y=y'' => \case y/=y'' y=y''
+          | yes x=x'', no y/=y'' => \case x/=x'' x=x''
+          | no x/=x'', yes y=y'' => \case y/=y'' y=y''
+          | no x/=x'', no y/=y'' => perm-swap x'=y'' x''=y' (pmap2 delete x=y xs=ys)
+        }
+      }
+    \func perm-delete {A : Dec} {x : A} {xs ys : List A} (p : Perm (x :: xs) ys) : Perm xs (delete x ys) \elim xs, ys, p
+      | xs, :: y ys, perm-cons x=y p' => mcases \with {
+        | yes x=y => p'
+        | no x/=y => \case x/=y x=y
+      }
+      | :: x' xs, :: y (:: y' ys), perm-swap x=y' x'=y xs=ys => mcases \with {
+        | yes x=y, yes x=y' => perm-cons (x'=y *> inv x=y *> x=y') (perm-= xs=ys)
+        | yes x=y, no x/=y' => \case x/=y' x=y'
+        | no x/=y, yes x=y' => mcases \with {
+          | yes x=y' => perm-cons x'=y (perm-= xs=ys)
+          | no x/=y' => \case x/=y' x=y'
+        }
+        | no x/=y, no x/=y' => \case x/=y' x=y'
+      }
+      | nil, nil, p => perm-nil
+      | nil, :: y ys, perm-trans p1 p2 => mcases \with {
+        | yes x=y => transport (Perm nil) (inv (len0-nil (inv (pmap pred (len-perm (p1 perm-*> p2)))))) perm-nil
+        | no x/=y => \case x/=y (pmapHead (sin-perm-lem idp (p1 perm-*> p2)))
+      }
+      | :: x' xs, nil, p => \case len-perm p
+      | :: x' xs, :: y nil, perm-trans p1 p2 => \case sin-perm-lem idp (perm-inv (p1 perm-*> p2))
+      | :: x' xs, :: y (:: y' ys), perm-trans {zs} p1 p2 => mcases \with {
+        | yes x=y, yes x=y' => perm-delete p1 perm-*> perm-= (pmap (delete __ zs) x=y) perm-*> perm-delete' p2
+        | yes x=y, no x/=y' => perm-delete p1 perm-*> perm-= (pmap (delete __ zs) x=y) perm-*> perm-delete' p2
+        | no x/=y, yes x=y' => mcases \with {
+          | yes x=y' => perm-tail x=y' (p1 perm-*> p2 perm-*> perm-swap idp idp idp)
+          | no x/=y' => \case x/=y' x=y'
+        }
+        | no x/=y, no x/=y' => mcases \with {
+          | yes x=y' => \case x/=y' x=y'
+          | no x/=y' => cases (A.decideEq x y, A.decideEq x y', perm-delete2 (idp : x = x) p2) \with {
+            | yes x=y, yes x=y', p3 => \case x/=y x=y
+            | yes x=y, no x/=y', p3 => \case x/=y x=y
+            | no x/=y, yes x=y', p3 => \case x/=y' x=y'
+            | no x/=y, no x/=y', p3 => perm-delete p1 perm-*> p3
+          }
+        }
+      }
+      \where {
+        \func len0-nil {A : \Type} {xs : List A} (p : length xs = 0) : xs = nil \elim xs
+          | nil => idp
+          | :: _ _ => \case p
+        \func len-perm {A : \Type} {xs ys : List A} (p : Perm xs ys) : length xs = length ys \elim xs, ys, p
+          | nil, nil, perm-nil => idp
+          | :: x xs, :: y ys, perm-cons x=y p' => pmap suc (len-perm p')
+          | xs, ys, perm-trans p1 p2 => len-perm p1 *> len-perm p2
+          | :: x (:: x' xs), :: y (:: y' ys), perm-swap x=y' x'=y xs=ys => pmap (suc o suc o length) xs=ys
+
+        \func pred (n : Nat) : Nat \elim n
+          | 0 => 0
+          | suc n => n
+
+        \func sin-perm-lem {A : \Type} {xs ys : List A} (q : length xs = 1) (p : Perm xs ys) : xs = ys \elim xs, ys, p
+          | nil, nil, perm-nil => idp
+          | :: x xs, :: y ys, perm-cons x=y p' => cons-= x=y (len0-nil (pmap pred q) *> inv (perm-=nil p' (len0-nil (pmap pred q))))
+          | xs, ys, perm-trans p1 p2 => sin-perm-lem q p1 *> sin-perm-lem (inv (pmap length (sin-perm-lem q p1)) *> q) p2
+          | :: x (:: x' xs), :: y (:: y' ys), perm-swap p p1 p2 => \case q
+      }
+    \func perm-delete' {A : Dec} {y : A} {xs ys : List A} (p : Perm xs (y :: ys)) : Perm (delete y xs) ys \elim xs, ys, p
+      | :: x xs, ys, perm-cons x=y p' => mcases \with {
+        | yes y=x => p'
+        | no y/=x => \case y/=x (inv x=y)
+      }
+      | :: x (:: x' xs), :: y' ys, perm-swap x=y' x'=y xs=ys => mcases \with {
+        | yes y=x, yes y=x' => perm-cons (x'=y *> y=x *> x=y') (perm-= xs=ys)
+        | yes y=x, no y/=x' => \case y/=x' (inv x'=y)
+        | no y/=x, yes y=x' => mcases \with {
+          | yes y=x' => perm-cons x=y' (perm-= xs=ys)
+          | no y/=x' => \case y/=x' (inv x'=y)
+        }
+        | no y/=x, no y/=x' => \case y/=x' (inv x'=y)
+      }
+      | nil, ys, p => \case perm-delete.len-perm p
+      | :: x nil, ys, perm-trans p1 p2 => mcases \with {
+        | yes y=x => transport (Perm nil) (inv (perm-delete.len0-nil (inv (pmap perm-delete.pred (perm-delete.len-perm (p1 perm-*> p2)))))) perm-nil
+        | no y/=x => \case y/=x (inv (pmapHead (perm-delete.sin-perm-lem idp (p1 perm-*> p2))))
+      }
+      | :: x (:: x' xs), nil, perm-trans p1 p2 => \case perm-delete.sin-perm-lem idp (perm-inv (p1 perm-*> p2))
+      | :: x (:: x' xs), :: y' ys, perm-trans {zs} p1 p2 => mcases \with {
+        | yes y=x, yes y=x' => perm-delete p1 perm-*> perm-= (inv (pmap (delete __ zs) y=x)) perm-*> perm-delete' p2
+        | yes y=x, no y/=x' => perm-delete p1 perm-*> perm-= (inv (pmap (delete __ zs) y=x)) perm-*> perm-delete' p2
+        | no y/=x, yes y=x' => mcases \with {
+          | yes y=x' => perm-tail (inv y=x') (perm-swap idp idp idp perm-*> p1 perm-*> p2)
+          | no y/=x' => \case y/=x' y=x'
+        }
+        | no y/=x, no y/=x' => mcases \with {
+          | yes y=x' => \case y/=x' y=x'
+          | no y/=x' => cases (A.decideEq y x, A.decideEq y x', perm-delete2 (idp : y = y) p1) \with {
+            | yes y=x, yes y=x', p3 => \case y/=x y=x
+            | yes y=x, no y/=x', p3 => \case y/=x y=x
+            | no y/=x, yes y=x', p3 => \case y/=x' y=x'
+            | no y/=x, no y/=x', p3 => p3 perm-*> perm-delete' p2
+          }
+        }
+      }
+}
+
+\open Perm-lems
+
+\func Perm->insSort {A : Dec} (l1 l2 : List A) (p : Perm l1 l2) : Insertion.sort l1 = Insertion.sort l2 \elim l1, l2, p
+  | nil, nil, perm-nil => idp
+  | :: x xs, :: y ys, perm-cons x=y p => pmap2 Insertion.sort.insert x=y (Perm->insSort xs ys p)
+  | xs, ys, perm-trans {zs} p1 p2 => Perm->insSort xs zs p1 *> Perm->insSort zs ys p2
+  | :: x (:: x' xs), :: y (:: y' ys), perm-swap x=y' x'=y xs=ys =>
+    transport3
+        (\lam (z z' : A) (zs : List A) => Insertion.sort (x :: x' :: xs) = Insertion.sort (z' :: z :: zs))
+        x=y'
+        x'=y
+        xs=ys
+        (Insertion.sort-perm.insert-comm x x' (Insertion.sort xs))
+
+\func insSort->Perm {A : Dec} (l1 l2 : List A) (p : Insertion.sort l1 = Insertion.sort l2) : Perm l1 l2
+  => perm-sort perm-*> perm-= p perm-*> perm-inv perm-sort
+
+\func Perm-insSort-lem {A : Dec} (l1 l2 : List A) : \Sigma (Perm l1 l2 -> Insertion.sort l1 = Insertion.sort l2) (Insertion.sort l1 = Insertion.sort l2 -> Perm l1 l2)
+  => (Perm->insSort l1 l2, insSort->Perm l1 l2)
 
 -- 3. Докажите, что спецификация "результат является перестановкой входа и отсортирован" является полной для функции sort.
 
+\func delete {A : DecSet} (x : A) (xs : List A) : List A \elim xs
+  | nil => nil
+  | :: x' xs => \case A.decideEq x x' \with {
+    | Set.Dec.yes x=x' => xs
+    | Set.Dec.no x/=x' => x' :: delete x xs
+  }
+
 \func completeness {A : Dec} (sort : List A -> List A) (l : List A) (p : Perm l (sort l)) (s : Sorted (sort l)) : sort l = Insertion.sort l
-  => {?}
+  => h (perm-inv p perm-*> perm-sort) s (Insertion.sort-sorted l)
+  \where {
+    \func h {A : Dec} {xs ys : List A} (p : Perm xs ys) (sx : Sorted xs) (sy : Sorted ys) : xs = ys \elim xs, ys, p, sx, sy
+      | nil, nil, perm-nil, sorted-nil, sorted-nil
+      => idp
+      | :: x xs, :: y ys, perm-cons x=y p', sorted-cons x<=hd sx', sorted-cons y<=hd sy'
+      => cons-= x=y (h p' sx' sy')
+      | nil, nil, perm-trans {zs} p1 p2, sorted-nil, sorted-nil
+      => idp
+      | nil, :: y ys, perm-trans {zs} p1 p2, sorted-nil, sorted-cons y<=hd sy'
+      => \case perm-=nil p2 (perm-nil_ p1)
+      | :: x xs, nil, perm-trans {zs} p1 p2, sorted-cons x<=hd sx', sorted-nil
+      => \case perm-=nil (perm-inv p1) (perm-nil_ (perm-inv p2))
+      | :: x xs, :: y ys, perm-trans {zs} p1 p2, sorted-cons x<=hd sx', sorted-cons y<=hd sy'
+      => pmap (:: x) (inv (sorted-sorted xs sx')) *> inv (perm-tail.insert-min-lem x (Insertion.sort xs) (transport (x <= headDef x __) (inv (sorted-sorted xs sx')) x<=hd)) *> Perm->insSort (x :: xs) (y :: ys) (p1 perm-*> p2) *> perm-tail.insert-min-lem y (Insertion.sort ys) (transport (y <= headDef y __) (inv (sorted-sorted ys sy')) y<=hd) *> inv (pmap (:: y) (inv (sorted-sorted ys sy')))
+      | :: x (:: x' xs), :: y (:: y' ys), perm-swap x=y' x'=y xs=ys, sorted-cons x<=hd sx', sorted-cons y<=hd sy'
+      => cons2-= (A.<-connectedness (transport2 (<=) (inv x'=y) (inv x=y') y<=hd) x<=hd *> x'=y) (x'=y *> A.<-connectedness (transport2 (<=) x=y' x'=y x<=hd) y<=hd) xs=ys
+      \where {
+        \func sorted-sorted {A : Dec} (xs : List A) (s : Sorted xs) : Insertion.sort xs = xs \elim xs, s
+          | nil, sorted-nil => idp
+          | :: x xs, sorted-cons x<=hd s' => pmap (Insertion.sort.insert x) (sorted-sorted xs s') *> perm-tail.insert-min-lem x xs x<=hd
+      }
+  }
 
 -- 4. Определите факториал через хвостовую рекурсию.
 --    Докажите, что он равен обычному определению факториала.
+
+\func fact (n : Nat) : Nat \elim n
+  | 0 => 1
+  | suc n => suc n Nat.* fact n
+
+\func fact' (n : Nat) : Nat => go 1 n
+  \where {
+    \func go (acc n : Nat) : Nat \elim n
+      | 0 => acc
+      | suc n => go (suc n Nat.* acc) n
+  }
+
+\func fact-equiv (n : Nat) : fact n = fact' n => inv *-1 *> h 1 n
+  \where {
+    \func +-assoc {x y z : Nat} : (x Nat.+ y) Nat.+ z = x Nat.+ (y Nat.+ z) \elim z
+      | 0 => idp
+      | suc z => pmap suc +-assoc
+    \func +-comm {x y : Nat} : x Nat.+ y = y Nat.+ x \elim x
+      | 0 => idp
+      | suc x => pmap suc +-comm
+    \func *-distr_suc {x y : Nat} : suc x Nat.* y = y Nat.+ x Nat.* y \elim y
+      | 0 => idp
+      | suc y => pmap suc (pmap (__ Nat.+ x) *-distr_suc *> +-assoc)
+    \func *-distr {x y z : Nat} : x Nat.* (y Nat.+ z) = x Nat.* y Nat.+ x Nat.* z \elim z
+      | 0 => idp
+      | suc z => pmap (__ Nat.+ x) *-distr *> +-assoc
+    \func *-assoc {x y z : Nat} : (x Nat.* y) Nat.* z = x Nat.* (y Nat.* z) \elim z
+      | 0 => idp
+      | suc z => pmap (__ Nat.+ x Nat.* y) *-assoc *> inv *-distr
+    \func *-0 {x : Nat} : 0 Nat.* x = 0 \elim x
+      | 0 => idp
+      | suc x => *-0
+    \func *-1 {x : Nat} : 1 Nat.* x = x \elim x
+      | 0 => idp
+      | suc x => pmap suc *-1
+    \func *-comm {x y : Nat} : x Nat.* y = y Nat.* x \elim x, y
+      | 0, 0 => idp
+      | 0, suc y => *-0
+      | suc x, 0 => inv *-0
+      | suc x, suc y => pmap suc (pmap (__ Nat.+ x) *-distr_suc *> +-assoc *> +-comm *> pmap (__ Nat.+ x Nat.+ y) *-comm *> pmap (__ Nat.+ y) (+-comm *> inv *-distr_suc))
+    \func h (m n : Nat) : m Nat.* fact n = fact'.go m n \elim n
+      | 0 => idp
+      | suc n => inv *-assoc *> pmap (__ Nat.* fact n) *-comm *> h (suc n Nat.* m) n
+  }
 
 -- 5. Определите функцию, которая проверяет правильность скобочной последовательности.
 --    Докажите ее корректность.
 
 \data Paren | Left | Right
 
-\func isBalanced (xs : List Paren) : Bool
-  => {?}
+\func isBalanced (xs : List Paren) : Bool => go 0 xs
+  \where {
+    \func go (acc : Nat) (xs : List Paren) : Bool \elim acc, xs
+      | 0, nil => true
+      | suc _, nil => false
+      | n, :: Left xs => go (suc n) xs
+      | 0, :: Right xs => false
+      | suc n, :: Right xs => go n xs
+  }
 
 \data Balanced (xs : List Paren) \with
   | nil => nil-balanced
@@ -34,4 +407,225 @@
   | xs => append-balanced {ys zs : List Paren} (Balanced ys) (Balanced zs) (xs = ys ++ zs)
 
 \func isBalanced-correct (xs : List Paren) : (isBalanced xs = true) <-> Balanced xs
-  => {?}
+  => (\lam p => isBalancedBalanced (length xs) 0 idp p
+    , \lam b => balancedIsBalanced xs b 0 idp)
+  \where {
+    \func _++nil {A : \Type} (xs : List A) : xs = xs ++ nil \elim xs
+      | nil => idp
+      | :: x xs => pmap (:: x) (_++nil xs)
+    \func go-Left::_ (xs : List Paren) (n : Nat) : isBalanced.go n (Left :: xs) = isBalanced.go (suc n) xs \elim xs, n
+      | nil, 0 => idp
+      | nil, suc _ => idp
+      | :: a xs, 0 => idp
+      | :: a xs, suc _ => idp
+    \func go-balanced++_ (xs ys : List Paren) (b : Balanced xs) (n : Nat) : isBalanced.go n (xs ++ ys) = isBalanced.go n ys \elim xs, b
+      | nil, nil-balanced => idp
+      | :: Left xs, cons-balanced {zs} b p => go-Left::_ (xs ++ ys) n *> pmap (\lam w => isBalanced.go (suc n) (w ++ ys)) p *> pmap (isBalanced.go (suc n)) ++-assoc *> go-balanced++_ zs (Right :: ys) b (suc n)
+      | zs, append-balanced {vs} {ws} b1 b2 p => pmap (\lam w => isBalanced.go n (w ++ ys)) p *> pmap (isBalanced.go n) ++-assoc *> go-balanced++_ vs (ws ++ ys) b1 n *> go-balanced++_ ws ys b2 n
+    \func balancedIsBalanced (xs : List Paren) (b : Balanced xs) (n : Nat) (q : n = 0) : isBalanced.go n xs = true \elim xs, b
+      | nil, nil-balanced => pmap (isBalanced.go __ nil) q
+      | :: Left xs, cons-balanced {ys} b p => go-Left::_ xs n *> pmap (isBalanced.go (suc n)) p *> go-balanced++_ ys (Right :: nil) b (suc n) *> pmap (isBalanced.go __ nil) q
+      | xs, append-balanced {ys} {zs} b1 b2 p => pmap (isBalanced.go n) p *> go-balanced++_ ys zs b1 n *> pmap (isBalanced.go n) (_++nil zs) *> go-balanced++_ zs nil b2 n *> pmap (isBalanced.go __ nil) q
+    \func consRightNotBalanced {xs ys : List Paren} (b : Balanced xs) (q : xs = Right :: ys) : Empty \elim xs, b
+      | nil, nil-balanced => \case q
+      | :: Left xs, cons-balanced b p => \case pmapHead q
+      | xs, append-balanced {zs} {ws} b1 b2 p => cases (zs arg addPath, ws arg addPath, p) \with {
+        | nil, q1, nil, q2, p => \case inv p *> q
+        | nil, q1, ws', q2, p => consRightNotBalanced b2 (q2 *> inv p *> q)
+        | zs', q1, nil, q2, p => consRightNotBalanced b1 (q1 *> _++nil zs' *> inv p *> q)
+        | :: z zs', q1, ws', q2, p => consRightNotBalanced b1 (transport (\lam w => zs = w :: zs') (pmapHead (inv p *> q)) q1)
+      }
+    \func balancedBeginsOnLeft {y : Paren} {xs ys : List Paren} (b : Balanced xs) (q : xs = y :: ys) : y = Left \elim y
+      | Left => idp
+      | Right => \case consRightNotBalanced b q
+    \func balancedEndsOnRight {xs ys : List Paren} (b : Balanced xs) (q : xs = Left :: ys) :
+      \Sigma (zs : List Paren) (zs ++ (Right :: nil) = ys) (Or
+          (Balanced zs)
+          (\Sigma (zs' : List Paren) (zs'' : List Paren) (zs = zs' ++ zs'') (Balanced (Left :: zs')) (Balanced (zs'' ++ Right :: nil))))
+    \elim xs, ys, b, q
+      | nil, nil, nil-balanced, ()
+      | nil, :: y ys, nil-balanced, ()
+      | :: Left xs, nil, cons-balanced {ws} b p, q => \case pmap reverse (inv (pmapTail q) *> p) *> reverse++ ws (Right :: nil)
+      | :: Left xs, :: y ys, cons-balanced {ws} b p, q => (ws, inv p *> pmapTail q, inl b)
+      | xs, nil, append-balanced {vs} {ws} b1 b2 p, idp => cases (vs arg addPath, ws arg addPath, p) \with {
+        | nil, q1, :: w ws', q2, p => \case replicateNotBalanced 1 Left ws b2 (q2 *> inv p)
+        | :: v vs', q1, nil, q2, p => \case replicateNotBalanced 1 Left vs b1 (q1 *> _++nil (v :: vs') *> inv p)
+        | :: v vs', q1, :: w ws', q2, p => cases (vs', p) \with { | nil, () }
+      }
+      | xs, :: y ys, append-balanced {vs} {ws} b1 b2 p, idp => cases (vs arg addPath, ws arg addPath, p) \with {
+        | nil, q1, :: w ws', q2, p => \let (zs, q, b') => balancedEndsOnRight b2 (q2 *> inv (cons-= (pmapHead p) idp)) \in (zs, q *> inv (pmapTail p), b')
+        | :: v vs', q1, nil, q2, p => \let (zs, q, b') => balancedEndsOnRight b1 (q1 *> inv (cons-= (pmapHead p) idp)) \in (zs, q *> _++nil vs' *> inv (pmapTail p), b')
+        | :: v vs', q1, :: w ws', q2, p => \let | (zs'1, q'1, b'1) => balancedEndsOnRight b1 (q1 *> cons-= (inv (pmapHead p)) idp)
+                                                | (zs'2, q'2, b'2) => balancedEndsOnRight b2 (q2 *> cons-= (balancedBeginsOnLeft b2 q2) idp)
+                                           \in (vs' ++ w :: zs'2, ++-assoc *> pmap (vs' ++ w :: __) q'2 *> inv (pmapTail p), inr (vs', w :: zs'2, idp, transport Balanced (q1 *> cons-= (inv (pmapHead p)) idp) b1, transport Balanced (q2 *> cons-= idp (inv q'2)) b2))
+      }
+    \func balancedReallyEndsOnRight (z : Paren) {xs : List Paren} (ys zs : List Paren) (b : Balanced xs) (q : xs = ys ++ z :: zs) : \Sigma (ws : List Paren) (ws ++ (Right :: nil) = z :: zs)
+    \elim z, xs, ys, zs, b, q
+      | Left, nil, nil, nil, nil-balanced, ()
+      | Left, nil, nil, :: z' zs, nil-balanced, ()
+      | Left, nil, :: y ys, nil, nil-balanced, ()
+      | Left, nil, :: y ys, :: z' zs, nil-balanced, ()
+      | Left, :: Left xs, nil, nil, cons-balanced {as} b p, q => \case pmap reverse (inv (pmapTail q) *> p) *> reverse++ as (Right :: nil)
+      | Left, :: Left xs, nil, :: z' zs, cons-balanced {as} b p, q => (Left :: as, inv (pmap (:: Left) p) *> q)
+      | Left, :: Left xs, :: y ys, nil, cons-balanced {as} b p, q => \case inv (reverse++ as (Right :: nil)) *> pmap reverse (inv p *> pmapTail q) *> reverse++ ys (Left :: nil)
+      | Left, :: Left xs, :: y ys, :: z' zs, cons-balanced {as} b p, q => h1 (Left :: as) (y :: ys) (z' :: zs) (pmap (:: Left) (inv p) *> q)
+      | Left, xs, nil, nil, append-balanced {as} {bs} b1 b2 p, idp => cases (as arg addPath, bs arg addPath, p) \with {
+        | nil, q1, :: b' bs', q2, p => \case replicateNotBalanced 1 Left bs b2 (q2 *> inv p)
+        | :: a' as', q1, nil, q2, p => \case replicateNotBalanced 1 Left as b1 (q1 *> _++nil (a' :: as') *> inv p)
+        | :: a' nil, q1, :: b' bs', q2, p => \case pmapTail p
+        | :: a' (:: a'' as'), q1, :: b' bs', q2, p => \case pmapTail p
+      }
+      | Left, xs, nil, :: z' zs, append-balanced {as} {bs} b1 b2 p, idp => cases (bs arg addPath) \with {
+        | nil, q' => \let (ws, q) => balancedReallyEndsOnRight z' (Left :: nil) zs b1 (inv (p *> pmap (++ as) q' *> inv (_++nil as))) \in (Left :: ws, pmap (:: Left) q)
+        | :: b' bs', q' => \let (wsb, qb) => balancedReallyEndsOnRight b' nil bs' b2 q' \in (as ++ wsb, ++-assoc *> pmap (++ as) qb *> pmap (++ as) (inv q') *> inv p)
+      }
+      | Right, xs, ys, nil, b, q => (nil, idp)
+      | Right, xs, ys, :: z' zs, b, q => \let (ws, q') => balancedReallyEndsOnRight z' (ys ++ Right :: nil) zs b (q *> (inv ++-assoc : ys ++ Right :: z' :: zs = (ys ++ Right :: nil) ++ z' :: zs)) \in (Right :: ws, cons-= idp q')
+      | Left, :: Left xs, :: y ys, nil, append-balanced {as} {bs} b1 b2 p, q => cases (as arg addPath, bs arg addPath, p) \with {
+        | nil, q1, nil, q2, ()
+        | nil, q1, :: b' bs', q2, p => balancedReallyEndsOnRight Left (y :: ys) nil b2 (q2 *> inv p *> q)
+        | :: a' as', q1, nil, q2, p => balancedReallyEndsOnRight Left (y :: ys) nil b1 (q1 *> _++nil (a' :: as') *> inv p *> q)
+        | :: a' as', q1, :: b' bs', q2, p => \let (wsb, qb) => balancedReallyEndsOnRight b' nil bs' b2 q2 \in \case inv (pmap (__ ++ a' :: nil) (pmap reverse (inv ++-assoc) *> reverse++ (as' ++ wsb) (Right :: nil))) *> pmap reverse (pmap (a' :: as' ++ __) qb *> inv p *> q) *> pmap (__ ++ y :: nil) (reverse++ ys (Left :: nil))
+      }
+      | Left, :: Left xs, :: y ys, :: z' zs, append-balanced {as} {bs} b1 b2 p, q => cases (bs arg addPath, p) \with {
+        | nil, q2, p => balancedReallyEndsOnRight Left (y :: ys) (z' :: zs) b1 (_++nil as *> inv p *> q)
+        | :: b' bs', q2, p => \let (wsb, qb) => balancedReallyEndsOnRight b' nil bs' b2 q2 \in h2 Left (as ++ wsb) (y :: ys) (z' :: zs) (++-assoc *> pmap (++ as) qb *> inv p *> q)
+      }
+      | Left, :: Right xs, :: y ys, zs, b, q => \case balancedBeginsOnLeft b idp
+      \where {
+        \func h1 (xs ys zs : List Paren) (q : xs ++ Right :: nil = ys ++ Left :: zs) : \Sigma (ws : List Paren) (ws ++ Right :: nil = Left :: zs) \elim xs, ys, zs, q
+          | nil, nil, nil, ()
+          | nil, :: y ys, nil, q => \case pmap reverse (pmapTail q) *> reverse++ ys (Left :: nil)
+          | nil, :: y ys, :: z zs, q => cases (ys, pmapTail q) \with { | nil, ()}
+          | :: x xs, nil, nil, q => (x :: xs, q)
+          | :: x xs, nil, :: z zs, q => (x :: xs, q)
+          | :: x xs, :: y ys, nil, q => \case pmap (__ ++ x :: nil) (inv (reverse++ xs (Right :: nil))) *> pmap reverse q *> pmap (__ ++ y :: nil) (reverse++ ys (Left :: nil))
+          | :: x xs, :: y ys, :: z zs, q => h1 xs ys (z :: zs) (pmapTail q)
+        \func h2 (z' : Paren) (xs ys zs : List Paren) (q : xs ++ Right :: nil = ys ++ z' :: zs) : \Sigma (vs : List Paren) (vs ++ Right :: nil = z' :: zs)
+        \elim xs, ys, zs, q
+          | nil, nil, nil, q => (nil, q)
+          | nil, :: y ys, zs, q => cases (ys, pmapTail q) \with { | nil, () }
+          | :: x xs, nil, zs, q => (x :: xs, q)
+          | :: x xs, :: y ys, zs, q => h2 z' xs ys zs (pmapTail q)
+      }
+    \func replicate {A : \Type} (n : Nat) (x : A) : List A \elim n
+      | 0 => nil
+      | suc n => x :: replicate n x
+    \func replicate++_ {A : \Type} (n : Nat) (x : A) (ys : List A) : replicate n x ++ (x :: ys) = replicate (suc n) x ++ ys \elim n
+      | 0 => idp
+      | suc n => pmap (:: x) (replicate++_ n x ys)
+    \func replicateReverse {A : \Type} (n : Nat) (x : A) : reverse (replicate n x) = replicate n x \elim n
+      | 0 => idp
+      | suc n => pmap (__ ++ x :: nil) (replicateReverse n x) *> replicate++_ n x nil *> inv (_++nil (x :: replicate n x))
+    \func replicate=_++_ {A : \Type} (n : Nat) (z : A) {xs ys : List A} (p : replicate n z = xs ++ ys) : \Sigma (m : Nat) (replicate m z = xs) \elim xs
+      | nil => (0, idp)
+      | :: x xs => cases (n, p) \with {
+        | suc n, p => \let (m, q) => replicate=_++_ n z (pmapTail p) \in (suc m, cons-= (pmapHead p) q)
+      }
+    \func replicateNotBalanced (n : Nat) (x : Paren) (xs : List Paren) (b : Balanced xs) (q : xs = replicate n x) : n = 0 \elim n, x, xs, b
+      | 0, _, _, _ => idp
+      | suc n, Left, nil, nil-balanced => \case q
+      | 1, Left, :: Left xs, cons-balanced {ys} b p => \case pmap reverse (inv (pmapTail q) *> p) *> reverse++ ys (Right :: nil)
+      | suc (suc n), Left, :: Left xs, cons-balanced {ys} b p => \case pmapHead (inv (replicateReverse (suc n) Left) *> pmap reverse (inv (pmapTail q) *> p) *> reverse++ ys (Right :: nil))
+      | suc n, Left, xs, append-balanced {ys} {zs} b1 b2 p => \let (m, q') => replicate=_++_ (suc n) Left (inv q *> p) \in cases (m, q') \with {
+        | 0, q'' => replicateNotBalanced (suc n) Left zs b2 (pmap (__ ++ zs) q'' *> inv p *> q)
+        | suc m, q'' => \case replicateNotBalanced (suc m) Left ys b1 (inv q'')
+      }
+      | suc n, Right, nil, nil-balanced => \case q
+      | suc n, Right, :: x xs, b => \case consRightNotBalanced b q
+    \func reverseParen (x : Paren) : Paren \elim x
+      | Left => Right
+      | Right => Left
+    \func reverseParen2=id (x : Paren) : reverseParen (reverseParen x) = x \elim x
+      | Left => idp
+      | Right => idp
+    \func reverseParens (xs : List Paren) : List Paren \elim xs
+      | nil => nil
+      | :: x xs => reverseParens xs ++ (reverseParen x :: nil)
+    \func reverseParens-lemForLast (x : Paren) (xs : List Paren) : reverseParens (xs ++ (x :: nil)) = reverseParen x :: reverseParens xs \elim xs
+      | nil => idp
+      | :: x' xs => pmap (__ ++ reverseParen x' :: nil) (reverseParens-lemForLast x xs)
+    \func reverseParens-++lem (xs ys : List Paren) : reverseParens (xs ++ ys) = reverseParens ys ++ reverseParens xs \elim xs, ys
+      | nil, nil => idp
+      | nil, :: y ys => _++nil (reverseParens ys ++ reverseParen y :: nil)
+      | :: x xs, nil => pmap (\lam w => reverseParens w ++ reverseParen x :: nil) (inv (_++nil xs))
+      | :: x xs, :: y ys => pmap (\lam w => w ++ reverseParen x :: nil) (reverseParens-++lem xs (y :: ys)) *> ++-assoc
+    \func reverseParens2=id (xs : List Paren) : reverseParens (reverseParens xs) = xs \elim xs
+      | nil => idp
+      | :: x xs => reverseParens-++lem (reverseParens xs) (reverseParen x :: nil) *> cons-= (reverseParen2=id x) (reverseParens2=id xs)
+    \func reverseParensBalanced' (xs : List Paren) (b : Balanced xs) : Balanced (reverseParens xs) \elim xs, b
+      | nil, nil-balanced => nil-balanced
+      | :: Left xs, cons-balanced {ys} b p => transport (\lam w => w) (pmap (\lam w => Balanced (w ++ Right :: nil)) (inv (pmap reverseParens p *> reverseParens-lemForLast Right ys))) (cons-balanced (reverseParensBalanced' ys b) idp)
+      | xs, append-balanced {ys} {zs} b1 b2 p => transport (\lam w => w) (inv (pmap (Balanced o reverseParens) p *> pmap Balanced (reverseParens-++lem ys zs))) (append-balanced (reverseParensBalanced' zs b2) (reverseParensBalanced' ys b1) idp)
+    \func reverseParensBalanced (xs : List Paren) : Balanced xs <-> Balanced (reverseParens xs) => (reverseParensBalanced' xs, transport Balanced (reverseParens2=id xs) o reverseParensBalanced' (reverseParens xs))
+    \func h (n : Nat) (xs : List Paren) : isBalanced.go n (Left :: xs) = isBalanced.go (suc n) xs \elim n
+      | 0 => idp
+      | suc n => idp
+    \func length++ {A : \Type} {xs ys : List A} : length (xs ++ ys) = length xs Nat.+ length ys \elim xs
+      | nil => idp
+      | :: _ xs => pmap suc length++
+    \func +-comm {x y : Nat} : x Nat.+ y = y Nat.+ x \elim x
+      | 0 => idp
+      | suc x => pmap suc +-comm
+    \func go-left-in-end-lem (xs : List Paren) (n : Nat) (p : isBalanced.go n (xs ++ Left :: nil) = true) : Empty \elim xs, n, p
+      | nil, 0, ()
+      | :: Left xs, 0, p => go-left-in-end-lem xs 1 p
+      | :: Right xs, 0, p => \case p
+      | :: Left xs, suc n, p => go-left-in-end-lem xs (suc (suc n)) p
+      | :: Right xs, suc n, p => go-left-in-end-lem xs n p
+    \func go-fal-lem (xs : List Paren) (p : isBalanced.go 0 xs = true) : Or (xs = nil) (\Sigma (ys : List Paren) (xs = Left :: ys ++ Right :: nil)) \elim xs
+      | nil => inl idp
+      | :: Left nil => \case p
+      | :: Left (:: x xs) => \let (y, ys, q_) => last x xs \in cases (y, q_) \with {
+        | Left, q => \case go-left-in-end-lem ys 1 (transport (isBalanced.go 1 __ = true) q p)
+        | Right, q => inr (ys, pmap (:: Left) q)
+      }
+      | :: Right xs => \case p
+      \where {
+        \func last {A : \Type} (x : A) (xs : List A) : \Sigma (y : A) (ys : List A) (x :: xs = ys ++ y :: nil) \elim xs
+          | nil => (x, nil, idp)
+          | :: x' xs => \let (y, ys, p) => last x' xs \in (y, x :: ys, pmap (:: x) p)
+      }
+    \func go-cons-lem {xs : List Paren} {n : Nat} (p : isBalanced.go n xs = true) : isBalanced.go n (Left :: xs ++ Right :: nil) = true \elim xs, n, p
+      | nil, 0, p => p
+      | :: Left xs, 0, p => go-cons-lem p
+      | :: Right xs, 0, p => \case p
+      | :: Left xs, suc n, p => go-cons-lem p
+      | :: Right xs', 1, p => go-cons-lem p
+      | :: Right xs', suc (suc n), p => go-cons-lem p
+    \func go-append-lem {xs ys : List Paren} {n : Nat} (p1 : isBalanced.go n xs = true) (p2 : isBalanced.go 0 ys = true) : isBalanced.go n (xs ++ ys) = true
+    \elim xs, ys, n, p1, p2
+      | nil, nil, 0, p1, p2 => idp
+      | nil, :: y ys, 0, p1, p2 => p2
+      | :: x xs, nil, n, p1, p2 => transport (isBalanced.go n __ = true) (_++nil (x :: xs)) p1
+      | :: Left xs, ys, 0, p1, p2 => go-append-lem p1 p2
+      | :: Right xs, ys, 0, p1, p2 => p1
+      | :: Left xs, ys, suc n, p1, p2 => go-append-lem p1 p2
+      | :: Right xs, ys, suc n, p1, p2 => go-append-lem p1 p2
+    \func go-main-lem (m : Nat) (n : Nat) (x : Paren) (xs : List Paren) (k : Nat) (q : length xs Nat.+ k = m) (p : isBalanced.go (suc n) (x :: xs) = true) : \Sigma (ys zs : List Paren) (x :: xs = ys ++ Right :: zs) (isBalanced.go 0 ys = true) (isBalanced.go n zs = true)
+    \elim m, x, xs, k, q, p
+      | 0, Left, nil, 0, q, ()
+      | 0, Left, :: x xs, 0, (), p
+      | 0, Right, nil, 0, q, p => (nil, nil, idp, idp, p)
+      | 0, Right, :: x xs, 0, (), p
+      | suc m, Left, nil, suc k, q, ()
+      | suc m, x, xs, suc k, q, p => go-main-lem m n x xs k (pmap pred q) p
+      | suc m, Left, :: x xs, 0, q, p => \let (ysx, zsx_, qx_, p1x, p2x_) => go-main-lem m (suc n) x xs 0 (pmap pred q) p \in cases (zsx_, qx_, p2x_) \with {
+        | nil, qx, ()
+        | :: zx zsx, qx, p2x => \let (ysz, zsz, qz, p1z, p2z) => go-main-lem m n zx zsx (suc (length ysx)) (inv (pmap pred (pmap length qx *> length++) *> pmap suc +-comm) *> pmap pred q) p2x \in (Left :: ysx ++ Right :: ysz, zsz, pmap (:: Left) (qx *> pmap (ysx ++ Right :: __) qz) *> inv (++-assoc {Paren} {Left :: ysx} {Right :: ysz} {Right :: zsz}), pmap (isBalanced.go 1) (inv ++-assoc) *> go-append-lem (go-cons-lem p1x) p1z, p2z)
+      }
+      | suc m, Right, :: x xs, 0, q, p => (nil, x :: xs, idp, idp, p)
+    \func isBalancedBalanced {xs : List Paren} (m : Nat) (k : Nat) (q : length xs Nat.+ k = m) (p : isBalanced.go 0 xs = true) : Balanced xs
+    \elim xs, m, k, q
+      | nil, m, k, q => nil-balanced
+      | :: x xs, 0, 0, ()
+      | :: Left nil, suc m, 0, q => \case p
+      | :: Left (:: x xs), suc m, 0, q => \let (ys, zs, q', p1, p2) => go-main-lem (length xs) 0 x xs 0 idp p \in transport Balanced (pmap (:: Left) (++-assoc {Paren} {ys} {Right :: nil} {zs} *> inv q')) (append-balanced (cons-balanced (isBalancedBalanced m (suc (length zs)) (inv (pmap length q' *> length++) *> pmap pred q) p1) idp) (isBalancedBalanced m (suc (length ys)) (inv (pmap length q' *> length++ *> pmap suc +-comm) *> pmap pred q) p2) idp)
+      | :: Right xs, suc m, 0, q => \case p
+      | xs, suc m, suc k, q => isBalancedBalanced m k (pmap pred q) p
+      \where {
+        \func h1 {x y : Nat} : suc x Nat.+ y = x Nat.+ suc y \elim x
+          | 0 => idp
+          | suc x => pmap suc h1
+      }
+  }

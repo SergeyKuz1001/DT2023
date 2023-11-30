@@ -209,6 +209,12 @@
       | :: z zs => z
     }
 
+\func pmapTail {A : \Type} {x y : A} {xs ys : List A} (p : x :: xs = y :: ys) : xs = ys => \lam (i : I)
+  => \case p i \return List A \with {
+      | nil => xs
+      | :: z zs => zs
+    }
+
 \instance ListEq {A : \Type} (dec : Eq A) : Eq (List A)
   | decideEq (xs ys : List A) : Decide (xs = ys) \elim xs, ys {
     | List.nil, List.nil => yes idp

@@ -109,7 +109,47 @@
           \lemma aux {A : Dec} {a a' : A} (a<a' : a < a') (l : List A)
             : insert a (insert a' l) = insert a' (insert a l) \elim l
             | nil => mcases (idp <|> contradiction)
-            | a1 :: l => repeat {4} mcases (idp <|> contradiction <|> pmap (a1 ::) (aux a<a' l))
+            | :: a1 l => mcases \with {
+              | inl x<a, inl x<a1 => mcases (contradiction <|> pmap (a1 ::) (aux a<a' l))
+              | inl x<a, inr a<=x => mcases \with {
+                | inl x<a1, inl x<a2, inl x<a3 => mcases contradiction
+                | inl x<a1, inl x<a2, inr a<=x1 => mcases contradiction
+                | inl x<a1, inr a<=x1, inl x<a2 => contradiction
+                | inl x<a1, inr a<=x1, inr a<=x2 => contradiction
+                | inr a<=x1, inl x<a1, inl x<a2 => mcases (idp <|> contradiction)
+                | inr a<=x1, inl x<a1, inr a<=x2 => mcases contradiction
+                | inr a<=x1, inr a<=x2, inl x<a1 => contradiction
+                | inr a<=x1, inr a<=x2, inr a<=x3 => contradiction
+              }
+              | inr a<=x, inl x<a => mcases \with {
+                | inl x<a1, inl x<a2, inl x<a3 => mcases contradiction
+                | inl x<a1, inl x<a2, inr a<=x1 => mcases contradiction
+                | inl x<a1, inr a<=x1, inl x<a2 => mcases contradiction
+                | inl x<a1, inr a<=x1, inr a<=x2 => mcases contradiction
+                | inr a<=x1, inl x<a1, inl x<a2 => contradiction
+                | inr a<=x1, inl x<a1, inr a<=x2 => contradiction
+                | inr a<=x1, inr a<=x2, inl x<a1 => contradiction
+                | inr a<=x1, inr a<=x2, inr a<=x3 => contradiction
+              }
+              | inr a<=x, inr a<=x1 => mcases \with {
+                | inl x<a, inl x<a1, inl x<a2, inl x<a3 => mcases contradiction
+                | inl x<a, inl x<a1, inl x<a2, inr a<=x2 => mcases contradiction
+                | inl x<a, inl x<a1, inr a<=x2, inl x<a2 => mcases contradiction
+                | inl x<a, inl x<a1, inr a<=x2, inr a<=x3 => mcases contradiction
+                | inl x<a, inr a<=x2, inl x<a1, inl x<a2 => mcases contradiction
+                | inl x<a, inr a<=x2, inl x<a1, inr a<=x3 => mcases contradiction
+                | inl x<a, inr a<=x2, inr a<=x3, inl x<a1 => mcases contradiction
+                | inl x<a, inr a<=x2, inr a<=x3, inr a<=x4 => mcases contradiction
+                | inr a<=x2, inl x<a, inl x<a1, inl x<a2 => mcases contradiction
+                | inr a<=x2, inl x<a, inl x<a1, inr a<=x3 => mcases contradiction
+                | inr a<=x2, inl x<a, inr a<=x3, inl x<a1 => contradiction
+                | inr a<=x2, inl x<a, inr a<=x3, inr a<=x4 => contradiction
+                | inr a<=x2, inr a<=x3, inl x<a, inl x<a1 => contradiction
+                | inr a<=x2, inr a<=x3, inl x<a, inr a<=x4 => mcases (idp <|> contradiction)
+                | inr a<=x2, inr a<=x3, inr a<=x4, inl x<a => contradiction
+                | inr a<=x2, inr a<=x3, inr a<=x4, inr a<=x5 => contradiction
+              }
+            }
         }
     }
 
@@ -122,10 +162,10 @@
         | :: x xs => mcases \with {
           | inl x<a => \case \elim s \with {
             | sorted-cons _x s => sorted-cons (\case \elim xs, \elim _x \with {
-              | nil, _ => <_<= x<a
+              | nil, _ => <=-less x<a
               | :: a1 l, q => mcases \with {
                 | inl x<a1 => q
-                | inr a<=x => <_<= x<a
+                | inr a<=x => <=-less x<a
               }
             }) (insert-sorted a xs s)
           }
@@ -171,7 +211,7 @@
 
   \func sort=insert {A : Dec} (xs : List A) : sort xs = Insertion.sort xs \elim xs
     | nil => idp
-    | a :: xs => toList_insert (transportInv Sorted (sort=insert xs) (Insertion.sort-sorted xs)) *>
+    | :: a xs => toList_insert (transportInv Sorted (sort=insert xs) (Insertion.sort-sorted xs)) *>
                  pmap (Insertion.sort.insert a) (sort=insert xs)
 
   \lemma toList_insert {A : Dec} {a : A} {t : Tree A} (s : Sorted (toList t))
@@ -195,7 +235,7 @@
   \lemma insert_++-right {A : Dec} {a a1 : A} (a1<a : a1 < a) {l1 l2 : List A} (s : Sorted (l1 ++ a1 :: l2))
     : Insertion.sort.insert a (l1 ++ a1 :: l2) = l1 ++ a1 :: Insertion.sort.insert a l2 \elim l1
     | nil => rewrite (dec<_reduce a1<a) idp
-    | a2 :: l1 => rewrite (dec<_reduce $ <-transitive-right (Sorted.allSorted l1 l2 s) a1<a) $ pmap (a2 ::) (insert_++-right a1<a \case s \with {
+    | :: a2 l1 => rewrite (dec<_reduce $ <-transitive-right (Sorted.allSorted l1 l2 s) a1<a) $ pmap (a2 ::) (insert_++-right a1<a \case s \with {
       | sorted-cons _x s1 => s1
     })
 }
