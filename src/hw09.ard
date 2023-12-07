@@ -1,47 +1,147 @@
+\import Data.List
 \import Data.Maybe
-\import Order.LinearOrder
+\import Data.Or
+\import Meta
+\import Logic
+\import Paths
+\import lect05
+\import lect06 (Decide, yes, no, pred)
+\import hw06 (o)
+\import lect07 ()
 \import lect09
-\open LinearOrder
 
 -- 1. Определите отношение многошаговой редукции на Term.
 
-\func Red {V : \Set} (t s : Term V) : \Type => {?}
+\data Red {V : \Set} (t s : Term V)
+  | none-steps (t = s)
+  | some-steps {r : Term V} (Red1 t r) (Red r s)
 
 -- 2. Стратегия редукции -- это функция, которая каждому терму сопоставляет либо некоторый терм, к которому он редуцируется за 1 шаг, либо доказательство, что таких термов нет.
 --    Определите любую стратегию редукции.
 
-\func strategy {V : \Set} (t : Term V) : Dec (\Sigma (s : Term V) (Red1 t s)) => {?}
+\func strategy {V : \Set} (t : Term V)
+  : Decide (\Sigma (s : Term V) (Red1 t s))
+  \elim t
+    | var v => Decide.no varNotRed
+    | app t1 t2 => cases (isItLam t1) \with {
+      | inl (s1, q) => Decide.yes (s1 >>= maybe t2 var, beta q idp)
+      | inr nsq => cases (strategy t1) \with {
+        | yes (s1, r1) => Decide.yes (app s1 t2, red-left r1 idp)
+        | no nsr1 => cases (strategy t2) \with {
+          | yes (s2, r2) => Decide.yes (app t1 s2, red-right idp r2)
+          | no nsr2 => Decide.no (appNotLamNotRed nsr1 nsr2 nsq)
+        }
+      }
+    }
+    | lam t => cases (strategy t) \with {
+      | yes (s, r) => Decide.yes (lam s, red-lam r)
+      | no nsr => Decide.no (\lam (s, r) => cases (s, r) \with {
+        | lam s', red-lam r' => nsr (s', r')
+      })
+    }
+    | unit => Decide.no unitNotRed
+  \where {
+    \func varNotRed {V : \Set} {v : V} : Not (\Sigma (s : Term V) (Red1 (var v) s)) => \lam (s, r) => \case r
+    \func unitNotRed {V : \Set} : Not (\Sigma (s : Term V) (Red1 unit s)) => \lam (s, r) => \case r
+    \func isItLam {V : \Set} (t : Term V) : Or (\Sigma (s : Term (Maybe V)) (t = lam s)) (\Pi (s : Term (Maybe V)) -> t /= lam s) \elim t
+      | var _ => inr \lam s q => \case q
+      | app _ _ => inr \lam s q => \case q
+      | lam s => inl (s, idp)
+      | unit => inr \lam s q => \case q
+    \func appNotLamNotRed {V : \Set} {t1 t2 : Term V} (nr1 : Not (\Sigma (s1 : Term V) (Red1 t1 s1))) (nr2 : Not (\Sigma (s2 : Term V) (Red1 t2 s2))) (nlt1 : \Pi (s : Term (Maybe V)) -> t1 /= lam s) : Not (\Sigma (s : Term V) (Red1 (app t1 t2) s))
+      => \lam (s, r) => cases (s, r) \with {
+        | s', beta {s''} pl p1 => nlt1 s'' pl
+        | app s1 s2, red-left r1 p2 => nr1 (s1, r1)
+        | app s1 s2, red-right p1 r2 => nr2 (s2, r2)
+      }
+  }
 
 -- 3. Докажите, что подтермы достижимого терма достижимы.
 
-\func appAccLeft {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 t
-  => {?}
+\func appAccLeft {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 t \elim a
+  | acc f => acc (\lam {a'} r' => appAccLeft (f (red-left r' idp)))
 
-\func appAccRight {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 s
-  => {?}
+\func appAccRight {V : \Set} {t s : Term V} (a : Acc Red1 (app t s)) : Acc Red1 s \elim a
+  | acc f => acc (\lam {a'} r' => appAccRight (f (red-right idp r')))
 
-\func subLamAcc {V : \Set} {t : Term (Maybe V)} (a : Acc Red1 (lam t)) : Acc Red1 t
-  => {?}
+\func subLamAcc {V : \Set} {t : Term (Maybe V)} (a : Acc Red1 (lam t)) : Acc Red1 t \elim a
+  | acc f => acc (\lam {a'} r' => subLamAcc (f (red-lam r')))
 
 -- 4. Докажите, что нейтральные термы замкнуты относительно редукций.
 
-\func neutralRed {V : \Set} {t s : Term V} (r : Red1 t s) (n : Neutral t) : Neutral s
-  => {?}
+\func neutralRed {V : \Set} {t s : Term V} (r : Red1 t s) (n : Neutral t) : Neutral s \elim t, s, r, n
+  | app t1 t2, s, beta q p, app-neutral n a => \case transport Neutral q n
+  | app t1 t2, app s1 s2, red-left r p, app-neutral n a => app-neutral (neutralRed r n) (transport (Acc Red1) p a)
+  | app t1 t2, app s1 s2, red-right p r, app-neutral n a => app-neutral (transport Neutral p n) (cases a \with { | acc f => f r })
 
 -- 5. Докажите следующую обобщенную лемму о подстановке и выведите из нее обычную версию: если Г, x : A |- b : B и Г |- a : A, то Г |- b[a/x] : B.
 
 \func substLem {U V : \Set} (ctx : U -> Type) (b : Term U) (B : Type) (h : hasType ctx b B)
                (ctx' : V -> Type) (a : U -> Term V) (h' : \Pi (u : U) -> hasType ctx' (a u) (ctx u))
   : hasType ctx' (b >>= a) B
-  => {?}
+  \elim b, B, h
+    | unit, Unit, unit-type => unit-type
+    | var u, B, var-type p => transport (hasType ctx' (a u)) p (h' u)
+    | app b1 b2, B, app-type {A} h1 h2 => app-type (substLem ctx b1 (Arr A B) h1 ctx' a h') (substLem ctx b2 A h2 ctx' a h')
+    | lam b', Arr B1 B2, lam-type h => lam-type (substLem (maybe B1 ctx) b' B2 h (maybe B1 ctx') (liftM a) (\lam mu => cases mu \with {
+      | nothing => var-type idp
+      | just u => liftHasType nil (h' u) B1
+    }))
+  \where {
+    \func liftHasType {V : \Set} {ctx : V -> Type} (Ts : List Type) {A : Type} {t : Term (H Ts V)} (h : hasType (F Ts ctx) t A) (T : Type)
+      : hasType (F Ts (maybe T ctx)) (termMap (G Ts just) t) A
+      \elim A, t, h
+        | Unit, unit, unit-type => unit-type
+        | A, var v, var-type p => var-type (HFG-lem ctx Ts T v *> p)
+        | A, app t1 t2, app-type h1 h2 => app-type (liftHasType Ts h1 T) (liftHasType Ts h2 T)
+        | Arr A1 A2, lam t', lam-type h' => lam-type (liftHasType (A1 :: Ts) h' T)
+      \where {
+        \func H (Ts : List Type) (V : \Set) : \Set \elim Ts
+          | nil => V
+          | :: _ Ts => Maybe (H Ts V)
+        \func F (Ts : List Type) {V : \Set} (ctx : V -> Type) : H Ts V -> Type \elim Ts
+          | nil => ctx
+          | :: T Ts => maybe T (F Ts ctx)
+        \func G (Ts : List Type) {V : \Set} (f : V -> Maybe V) : H Ts V -> H Ts (Maybe V) \elim Ts
+          | nil => f
+          | :: _ Ts => lect07.fmap (G Ts f)
+        \func HFG-lem {V : \Set} (ctx : V -> Type) (Ts : List Type) (T : Type) (v : H Ts V)
+          : F Ts (maybe T ctx) (G Ts just v) = F Ts ctx v
+        \elim Ts, v
+          | nil, v => idp
+          | :: T' Ts, nothing => idp
+          | :: T' Ts, just v => HFG-lem ctx Ts T v
+      }
+  }
 
-\func substLem1 => {?}
+\func substLem1 {V : \Set} {ctx : V -> Type} {a : Term V} {b : Term (Maybe V)} {A B : Type} (hb : hasType (maybe A ctx) b B) (ha : hasType ctx a A)
+  : hasType ctx (b >>= maybe a var) B
+  => substLem (maybe A ctx) b B hb ctx (maybe a var) (\lam mu => cases mu \with {
+    | nothing => ha
+    | just u => var-type idp
+  })
 
 -- 6. Докажите, что если Г |- a : A и Red a a', то Г |- a' : A
 
+\func red1Lem {V : \Set} {ctx : V -> Type} {a a' : Term V} (r : Red1 a a') {A : Type} (h : hasType ctx a A)
+  : hasType ctx a' A
+  \elim a, a', r, A, h
+    | app a1 a2, a', beta {a1l} p1 p', A, app-type {B} h1 h2 => transport (hasType ctx __ A) (inv p') (substLem1 (anti-lam-type (transport (hasType ctx __ (Arr B A)) p1 h1)) h2)
+    | app a1 a2, app a'1 a'2, red-left r p, A, app-type {B} h1 h2 => app-type (red1Lem r h1) (transport (hasType ctx __ B) p h2)
+    | app a1 a2, app a'1 a'2, red-right p r, A, app-type {B} h1 h2 => app-type (transport (hasType ctx __ (Arr B A)) p h1) (red1Lem r h2)
+    | lam al, lam a'l, red-lam r, Arr A1 A2, lam-type hl => lam-type (red1Lem r hl)
+  \where {
+    \func anti-lam-type {V : \Set} {ctx : V -> Type} {t : Term (Maybe V)} {A B : Type} (h : hasType ctx (lam t) (Arr A B))
+      : hasType (maybe A ctx) t B
+      \elim t, A, B, h
+        | _, _, _, lam-type h => h
+  }
+
 \func redLem {V : \Set} {ctx : V -> Type} {a a' : Term V} (r : Red a a') {A : Type} (h : hasType ctx a A)
   : hasType ctx a' A
-  => {?}
+  \elim r
+    | none-steps p => transport (hasType ctx __ A) p h
+    | some-steps {a_} r1 r' => redLem r' (red1Lem r1 h)
 
 -- Optional
 -- 7. Для доказательства typeableInterp понадобится вспомогательное утверждение. Докажите его.
@@ -50,7 +150,208 @@
   | app t1 t2, app s1 s2 => headApp (HeadRed a t1 s1) (t2 = s2)
   | app t a', s => headBeta {f : Term (Maybe V)} (a = a') (lam f = t) (f >>= maybe a var = s)
 
-\func redInterp {V : \Set} {a t s : Term V} {T : Type} (r : HeadRed a t s) (acc : Acc Red1 a) (q : Interp T s) : Interp T t
+\func redInterp {V : \Set} {a t s : Term V} {T : Type} (hr : HeadRed a t s) (acc : Acc Red1 a) (q : Interp T s)
+  : Interp T t
   => {?}
 
 -- 8. Докажите typeableInterp из лекции
+
+\func typeableInterp {U V : \Set} (ctx : U -> Type) (env : U -> Term V)
+                     (C : \Pi (u : U) -> Interp (ctx u) (env u)) {t : Term U} {T : Type}
+                     (h : hasType ctx t T)
+  : Interp T (t >>= env)
+  \elim t, T, h
+    | unit, Unit, unit-type => acc \lam {a'} r' => cases (a', r')
+    | var u, T, var-type p => transport (Interp __ (env u)) p (C u)
+    | app t1 t2, T, app-type h1 h2 => typeableInterp ctx env C h1 (typeableInterp ctx env C h2)
+    | lam tl, Arr T1 T2, lam-type hl => \lam {t'} i' =>
+        \let r => transport (Red1 (app (lam (tl >>= maybe (var nothing) (termMap just o env))) t')) (>>=-assoc tl (maybe (var nothing) (termMap just o env)) (maybe t' var) *> pmap (>>= tl) (inv (funExt (\lam mx => cases mx \with { | nothing => idp | just x => liftUnliftLem } : \Pi (mx : Maybe U) -> maybe t' env mx = (maybe (var nothing) (termMap just o env) mx >>= maybe t' var))))) (beta {V} {lam (tl >>= maybe (var nothing) (termMap just o env))} {t'} idp idp)
+        \in redInterp (beta->headBeta idp idp r) (interpAcc T1 t' i') (typeableInterp (maybe T1 ctx) (maybe t' env) (\lam mu => cases mu \with { | nothing => i' | just u => C u }) hl)
+  \where {
+    \func liftUnliftLem {V : \Set} {t : Term V} {t' : Term V}
+      : t = termMap just t >>= maybe t' var
+      => general 0
+      \where {
+        \func general {V : \Set} (n : Nat) {t : Term (H n V)} {t' : Term V}
+          : t = termMap (F n just) t >>= G n (maybe t' var)
+          \elim t
+            | var v => inv HFG-lem
+            | app t1 t2 => pmap2 app (general n) (general n)
+            | lam tl => pmap lam (general (suc n) {tl})
+            | unit => idp
+          \where {
+            \func H (n : Nat) (V : \Set) : \Set \elim n
+              | 0 => V
+              | suc n => Maybe (H n V)
+            \func F (n : Nat) {V : \Set} (f : V -> Maybe V) : H n V -> H n (Maybe V) \elim n
+              | 0 => f
+              | suc n => lect07.fmap (F n f)
+            \func G (n : Nat) {V : \Set} (f : Maybe V -> Term V) : H n (Maybe V) -> Term (H n V) \elim n
+              | 0 => f
+              | suc n => liftM (G n f)
+            \func HFG-lem {V : \Set} {n : Nat} {v : H n V} {t' : Term V}
+              : G n (maybe t' var) (F n just v) = var v
+              \elim n, v
+                | 0, v => idp
+                | suc n, nothing => idp
+                | suc n, just v' => pmap (termMap just) HFG-lem
+          }
+      }
+    \func liftUnliftLem' {U V : \Set} {env : U -> Term V} {t' : Term V}
+      : maybe t' env = (\lam (mu : Maybe U) => maybe (var nothing) (termMap just o env) mu >>= maybe t' var)
+      => funExt (\lam mu => cases mu \with {
+        | nothing => idp
+        | just a => liftUnliftLem
+      })
+    \func beta->headBeta {U V : \Set} {env : U -> Term V} {tl : Term (Maybe U)} {tl' : Term (Maybe V)} (p : tl >>= liftM env = tl') {t' : Term V} {s : Term V} (q : tl >>= maybe t' env = s) (r : Red1 (app (lam tl') t') s)
+      : HeadRed t' (app (lam tl') t') s
+      \elim tl', t', s, r
+        | var v, t', s, beta {tll'} p1 p2 => headBeta idp idp (pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2)
+        | var v, t', app s1 s2, red-left r p1 => \let (u, q') => varBind p \in cases (u, pmap (__ >>= liftM env) (inv q') *> p, pmap (__ >>= maybe t' env) (inv q') *> q) \with {
+          | nothing, p, q => \case noneAppRightRec (inv p1 *> q)
+          | just u', p, q => \case transport (termMap just __ = var v) q p
+        }
+        | var v, t', app s1 s2, red-right p1 r => \let (u, q') => varBind p \in cases (u, pmap (__ >>= liftM env) (inv q') *> p, pmap (__ >>= maybe t' env) (inv q') *> q) \with {
+          | nothing, p, q => headBeta idp idp (pmap (__ >>= maybe t' var) (inv p) *> q)
+          | just u', p, q => \case transport (termMap just __ = var v) q p
+        }
+        | app tl'1 tl'2, t', s, beta {tll'} p1 p2 => headBeta idp idp (pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2)
+        | app tl'1 tl'2, t', app s1 s2, red-left r p1 => cases (appBind p) \with {
+          | inl (nothing, ql, qe) => \case qe
+          | inl (just u, ql, qe) => headBeta idp idp (pmap (__ >>= maybe t' var) (inv qe *> pmap (termMap just) (pmap (__ >>= maybe t' env) (inv ql) *> q)) *> pmap (app __ (termMap just s2 >>= maybe t' var)) (inv liftUnliftLem) *> pmap (app s1) (inv liftUnliftLem))
+          | inr (tl1, tl2, ql) => headBeta idp idp (inv (pmap (\lam w => app (tl1 >>= w) (tl2 >>= w)) liftUnliftLem' *> (pmap2 app (inv (>>=-assoc tl1 (liftM env) (maybe t' var))) (inv (>>=-assoc tl2 (liftM env) (maybe t' var))) *> pmap (__ >>= maybe t' var) (transport (__ >>= liftM env = app tl'1 tl'2) ql p))) *> transport (__ >>= maybe t' env = app s1 s2) ql q)
+        }
+        | app tl'1 tl'2, t', app s1 s2, red-right p1 r => cases (appBind p) \with {
+          | inl (nothing, ql, qe) => \case qe
+          | inl (just u, ql, qe) => \case noneLamAppLeftRec (inv p1 *> pmap lam (inv qe *> pmap (termMap just) (pmap (__ >>= maybe t' env) (inv ql) *> q)))
+          | inr (tl1, tl2, ql) => headBeta idp idp (inv (pmap (\lam w => app (tl1 >>= w) (tl2 >>= w)) liftUnliftLem' *> (pmap2 app (inv (>>=-assoc tl1 (liftM env) (maybe t' var))) (inv (>>=-assoc tl2 (liftM env) (maybe t' var))) *> pmap (__ >>= maybe t' var) (transport (__ >>= liftM env = app tl'1 tl'2) ql p))) *> transport (__ >>= maybe t' env = app s1 s2) ql q)
+        }
+        | lam tl', t', s, beta {tll'} p1 p2 => headBeta idp idp (pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2)
+        | lam tl', t', app s s1, red-left r p1 => cases (lamBind p, appBind q) \with {
+          | inl (nothing, ql1, qe1), inl (_, _, qe2) => \case qe1
+          | inl (just u1, ql1, qe1), inl (nothing, ql2, qe2) => \case inv ql1 *> ql2
+          | inl (just u1, ql1, qe1), inl (just u2, ql2, qe2) => \case inv qe1 *> pmap (termMap just) (pmap (env o unjust u1 o unvar nothing) (inv ql1 *> ql2) *> qe2)
+          | inl (mu, ql1, qe1), inr (tl1, tl2, qla) => \case inv ql1 *> qla
+          | inr (tll, qll), inl (mu, ql2, qe2) => \case inv qll *> ql2
+          | inr (tll, qll), inr (tl1, tl2, qla) => \case inv qll *> qla
+        }
+        | lam tl', t', app s s1, red-right p1 r => cases (lamBind p, appBind q) \with {
+          | inl (nothing, ql1, qe1), inl (_, _, qe2) => \case qe1
+          | inl (just u1, ql1, qe1), inl (nothing, ql2, qe2) => \case inv ql1 *> ql2
+          | inl (just u1, ql1, qe1), inl (just u2, ql2, qe2) => \case inv qe1 *> pmap (termMap just) (pmap (env o unjust u1 o unvar nothing) (inv ql1 *> ql2) *> qe2)
+          | inl (mu, ql1, qe1), inr (tl1, tl2, qla) => \case inv ql1 *> qla
+          | inr (tll, qll), inl (mu, ql2, qe2) => \case inv qll *> ql2
+          | inr (tll, qll), inr (tl1, tl2, qla) => \case inv qll *> qla
+        }
+        | unit, t', var v, beta {tll'} p1 p2 => \case pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2
+        | unit, t', app s1 s2, beta {tll'} p1 p2 => \case pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2
+        | unit, t', lam sl, beta {tll'} p1 p2 => \case pmap ((\lam w => w >>= maybe t' var) o unlam) p1 *> inv p2
+        | unit, t', unit, beta {tll'} p1 p2 => headBeta idp idp idp
+        | unit, t', app s1 s2, red-left r p1 => cases (unitBind p, appBind q) \with {
+          | inl (nothing, ql1, qe1), inl (_, _, qe2) => \case qe1
+          | inl (just u1, ql1, qe1), inl (nothing, ql2, qe2) => \case inv ql1 *> ql2
+          | inl (just u1, ql1, qe1), inl (just u2, ql2, qe2) => \case inv qe1 *> pmap (termMap just) (pmap (env o unjust u1 o unvar nothing) (inv ql1 *> ql2) *> qe2)
+          | inl (mu, ql1, qe1), inr (tl1, tl2, qla) => \case inv ql1 *> qla
+          | inr qlu, inl (mu, ql2, qe2) => \case inv qlu *> ql2
+          | inr qlu, inr (tl1, tl2, qla) => \case inv qlu *> qla
+        }
+        | unit, t', app s1 s2, red-right p1 r => cases (unitBind p, appBind q) \with {
+          | inl (nothing, ql1, qe1), inl (_, _, qe2) => \case qe1
+          | inl (just u1, ql1, qe1), inl (nothing, ql2, qe2) => \case inv ql1 *> ql2
+          | inl (just u1, ql1, qe1), inl (just u2, ql2, qe2) => \case inv qe1 *> pmap (termMap just) (pmap (env o unjust u1 o unvar nothing) (inv ql1 *> ql2) *> qe2)
+          | inl (mu, ql1, qe1), inr (tl1, tl2, qla) => \case inv ql1 *> qla
+          | inr qlu, inl (mu, ql2, qe2) => \case inv qlu *> ql2
+          | inr qlu, inr (tl1, tl2, qla) => \case inv qlu *> qla
+        }
+      \where {
+        \func varBind {U V : \Set} {env : U -> Term V} {t : Term U} {v : V} (q : t >>= env = var v)
+          : \Sigma (u : U) (t = var u)
+          \elim t
+            | var u => (u, idp)
+            | app t1 t2 => \case q
+            | lam tl => \case q
+            | unit => \case q
+        \func appBind {U V : \Set} {env : U -> Term V} {t : Term U} {s1 s2 : Term V} (q : t >>= env = app s1 s2)
+          : Or (\Sigma (u : U) (t = var u) (env u = app s1 s2)) (\Sigma (t1 t2 : Term U) (t = app t1 t2))
+          \elim t
+            | var u => inl (u, idp, q)
+            | app t1 t2 => inr (t1, t2, idp)
+            | lam t => \case q
+            | unit => \case q
+        \func lamBind {U V : \Set} {env : U -> Term V} {t : Term U} {sl : Term (Maybe V)} (q : t >>= env = lam sl)
+          : Or (\Sigma (u : U) (t = var u) (env u = lam sl)) (\Sigma (tl : Term (Maybe U)) (t = lam tl))
+          \elim t
+            | var u => inl (u, idp, q)
+            | app t1 t2 => \case q
+            | lam tl => inr (tl, idp)
+            | unit => \case q
+        \func unitBind {U V : \Set} {env : U -> Term V} {t : Term U} (q : t >>= env = unit)
+          : Or (\Sigma (u : U) (t = var u) (env u = unit)) (t = unit)
+          \elim t
+            | var u => inl (u, idp, q)
+            | app t1 t2 => \case q
+            | lam t => \case q
+            | unit => inr idp
+        \func noneAppRightRec {V : \Set} {t t' : Term V} (q : t = app t' t) : Empty => general nil q
+          \where {
+            \func general {V : \Set} {t : Term V} (ts : List (Term V)) {t' : Term V} (q : F ts t = app t' (F ts t)) : Empty
+              \elim t, ts, t', q
+                | var v, nil, t', ()
+                | app t1 t2, nil, t', q => general {V} {t2} nil {t1} (pmap unappR q)
+                | lam tl, nil, t', ()
+                | unit, nil, t', ()
+                | t, :: t_ ts, t', q => general {V} {t} ts {t_} (pmap unappR q)
+              \where {
+                \func F {V : \Set} (ts : List (Term V)) (t : Term V) : Term V
+                \elim ts
+                  | nil => t
+                  | :: t' ts => app t' (F ts t)
+              }
+          }
+        \func term-left-depth {V : \Set} (t : Term V) : Nat
+          \elim t
+            | var _ => 0
+            | app t _ => suc (term-left-depth t)
+            | lam t => suc (term-left-depth t)
+            | unit => 0
+        \func ManyMaybe (n : Nat) (V : \Set) : \Set \elim n
+          | 0 => V
+          | suc n => Maybe (ManyMaybe n V)
+        \func manyFmap (n : Nat) {V : \Set} (f : V -> Maybe V) : ManyMaybe n V -> ManyMaybe (suc n) V \elim n
+          | 0 => f
+          | suc n => lect07.fmap (manyFmap n f)
+        \func noneAppLamFmapJustLeftRec {V : \Set} {t t' : Term V} (q : t = app (lam (termMap just t)) t') : Empty => general 0 (term-left-depth t) idp q
+          \where {
+            \func general {V : \Set} (n : Nat) {t : Term (ManyMaybe n V)} (m : Nat) (p : term-left-depth t = m) {t' : Term (ManyMaybe n V)} (q : t = app (lam (termMap (manyFmap n just) t)) t') : Empty
+              \elim t, t', q
+                | var v, var v', ()
+                | app t1 t2, t', q => cases (m, p) \with { | suc m, p => noneLamAppLeftRec.general n m (pmap pred p) (pmap unappL q) }
+                | lam tl, var v', ()
+                | unit, var v', ()
+          }
+        \func noneLamAppLeftRec {V : \Set} {t : Term V} {t' : Term (Maybe V)} (q : t = lam (app (termMap just t) t')) : Empty => general 0 (term-left-depth t) idp q
+          \where {
+            \func general {V : \Set} (n : Nat) {t : Term (ManyMaybe n V)} (m : Nat) (p : term-left-depth t = m) {t' : Term (Maybe (ManyMaybe n V))} (q : t = lam (app (termMap (manyFmap n just) t) t')) : Empty
+              \elim t, t', q
+                | var v, var v', ()
+                | app t1 ts, var v', ()
+                | lam tl, t', q => cases (m, p) \with { | suc m, p => noneAppLamFmapJustLeftRec.general (suc n) m (pmap pred p) (pmap unlam q) }
+          }
+        \func unappL {V : \Set} (t : Term V) : Term V
+          \elim t
+            | app t1 t2 => t1
+            | t => t
+        \func unappR {V : \Set} (t : Term V) : Term V
+          \elim t
+            | app t1 t2 => t2
+            | t => t
+        \func unvar {V : \Set} (d : V) (t : Term V) : V
+          \elim t
+            | var v => v
+            | t => d
+        \func unlam {V : \Set} (t : Term V) : Term (Maybe V)
+          \elim t
+            | lam tl => tl
+            | t => unit
+      }
+  }
