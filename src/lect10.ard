@@ -38,8 +38,8 @@
 -- \Pi (x y : A) -> Not (x = y) -> Not (f x = f y)
 
 \func So-lem {b : Bool} {x y : So b} : x = y \elim b
-  | false => absurd x
-  | true => idp
+  | false => \case x
+  | true => cases (x, y) \with { | so, so => idp }
 
 -- Доказательство того, что четные числа вкладываются в натуральные.
 \func Even-inc-isInj : isInj Even-inc
