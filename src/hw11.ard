@@ -1,26 +1,88 @@
 \import Data.Bool
-\import Logic (<->)
+\import Equiv
+\import Equiv.Univalence
+\import Function
+\import Logic (/=, <->, inP)
+\import Logic.Meta
+\import Meta
+\import Paths (*>, inv, pmap)
+\import Paths.Meta
+\import lect04 (J)
+\import lect05 (funExt)
+\import lect10 (prodEq)
 \import lect11
 
 -- 1. Докажите, что если A : \Prop, то Trunc A эквивалентен A.
 
-\func trunc-prop {A : \Prop} : Trunc A <-> A => {?}
+\func trunc-prop {A : \Prop} : Trunc A <-> A => (Trunc-elim id, trunc)
 
 -- 2. Докажите следующий закон де Моргана.
 
-\func deMorgan (A B C : \Prop) : (\Sigma A (B `Or` C)) <-> ((\Sigma A B) `Or` (\Sigma A C)) => {?}
+\func deMorgan (A B C : \Prop) : (\Sigma A (B `Or` C)) <-> ((\Sigma A B) `Or` (\Sigma A C)) =>
+  ( \lam (a, boc) => \case boc \with {
+    | inl b => inl (a, b)
+    | inr c => inr (a, c)
+  }
+  , \lam aboac => \case aboac \with {
+    | inl (a, b) => (a, inl b)
+    | inr (a, c) => (a, inr c)
+  })
 
 -- 3. Определите элиминатор для Or через Or-rec, не используя паттерн матчинг на Or.
 
 \func Or-elim {A B : \Prop} (C : Or A B -> \Prop)
               (f : \Pi (x : A) -> C (inl x)) (g : \Pi (y : B) -> C (inr y))
-              (p : A `Or` B) : C p => {?}
+              (p : A `Or` B) : C p => Or-rec (\lam x => transport id (pmap C (pathInProp {Or A B} (inl x) p)) (f x)) (\lam y => transport id (pmap C (pathInProp {Or A B} (inr y) p)) (g y)) p
 
 -- 4. Докажите, что тип утверждений является множеством.
 
-\func prop-isSet : isSet \Prop => {?}
+\func prop-ext {A B : \Prop} : QEquiv' (A = B) (\Sigma (A -> B) (B -> A)) => (\lam q => (transport id q, transport id (inv q)), \lam (x, y) => propExt x y, \lam _ => pathInProp _ _, \lam _ => pathInProp _ _)
+
+\func eqForEquiv {A B : \Type} (e : QEquiv' A B) (x y : A) (q : e.1 x = e.1 y) : x = y => inv (e.3 x) *> pmap e.2 q *> e.3 y
+
+\func prop-isSet : isSet \Prop => \lam p1 p2 q1 q2 => eqForEquiv prop-ext q1 q2 (prodEq _ _ (funExt (\lam _ => pathInProp _ _)) (funExt (\lam _ => pathInProp _ _)))
 
 -- 5. Докажите, что функции Prop1-to-Prop2 и Prop2-to-Prop1 взаимно обратны и, как следствие, что Prop1 = Prop2.
+
+\func Equiv->QEquiv' {A B : \Type} (e : Equiv {A} {B}) : QEquiv' A B => (e.f, e.ret, e.ret_f, \lam y => pmap (\lam g => e.f (g y)) (ext (\lam (b : B) => inv (pmap e.ret (e.f_sec b)) *> e.ret_f (e.sec b)) : e.ret = e.sec) *> e.f_sec y)
+
+\func QEquiv'->Equiv {A B : \Type} (qe' : QEquiv' A B) : Equiv {A} {B} \cowith
+  | f => qe'.1
+  | ret => qe'.2
+  | ret_f => qe'.3
+  | sec => qe'.2
+  | f_sec => qe'.4
+
+\func Equiv->QEquiv'->Equiv {A B : \Type} (e : Equiv {A} {B}) : QEquiv'->Equiv (Equiv->QEquiv' e) = e => ext (idp, idp, idp, ext (\lam (y : B) => inv (pmap e.ret (e.f_sec y)) *> e.ret_f (e.sec y)) : e.ret = e.sec, simp_coe (\lam y => simp_coe idp))
+
+\func QEquiv'->Equiv->QEquiv' {A B : \Type} (qe' : QEquiv' A B) : Equiv->QEquiv' (QEquiv'->Equiv qe') = qe' => ext (idp, idp, idp, ext (\lam (y : B) => pmap (\lam w => w *> qe'.4 y) ({?} ({?} : path (\lam i b => (inv (pmap qe'.2 (qe'.4 b)) *> qe'.3 (qe'.2 b)) @ i) = path (\lam _ => qe'.2))) *> idp*>p=p (qe'.4 y)))
+  \where {
+    \func idp*>p=p {A : \Type} {x y : A} (p : x = y) : idp *> p = p \elim p | idp => idp
+    --\func h {A B : \Set} {f : A -> B} (q : \Pi (a : A) -> f a = f a) : path (\lam i a => q a @ i) = path (\lam _ => f) => path (\lam i => {?} (funExt q))
+    --\func hh {A B : \Set} (f : A -> B) (q : f = f) : q = idp => path (\lam i => {?} (q @ i))
+  }
+
+\func =_QEquiv'->Equiv {A B : \Type} {e : Equiv {A} {B}} {q : QEquiv' A B} (p : Equiv->QEquiv' e = q) : e = QEquiv'->Equiv q => inv (Equiv->QEquiv'->Equiv e) *> pmap QEquiv'->Equiv p
+
+\lemma Prop1-to-Prop2-to-Prop1 (P : Prop1) : Prop2-to-Prop1 (Prop1-to-Prop2 P) = P => ext (\lam p' => \case p' \with {| inc p => p }, inc)
+
+\func Prop2-to-Prop1-to-Prop2 (P : Prop2) : Prop1-to-Prop2 (Prop2-to-Prop1 P) = P => ext (QEquiv.ret {univalence {Prop2-to-Prop1' P.1 P.2} {P.1}} (QEquiv'->Equiv (uninc, inc, inc-uninc, uninc-inc)), ext (\lam x y => eqOfPropIsProp P.1 P.2 x y (Paths.transport isProp (Section.ret {univalence} (QEquiv'->Equiv (uninc, inc, inc-uninc, uninc-inc))) (Prop1-to-Prop2 (Prop2-to-Prop1 P)).2 x y) (P.2 x y)))
+  \where {
+    \sfunc uninc {A : \Type} {aip : isProp A} (p' : Prop2-to-Prop1' A aip) : A \elim p'
+      | inc a => a
+    \func inc-uninc {A : \Type} {aip : isProp A} (p' : Prop2-to-Prop1' A aip) : inc (uninc p') = p' => ext
+    \func uninc-inc {P : Prop2} (p : P.1) : uninc {P.1} {P.2} (inc p) = p => P.2 (uninc {P.1} {P.2} (inc p)) p
+    \func eqOfPropIsProp (P : \Type) (Pip : isProp P) (x y : P) : isProp (x = y) => \lam p q => h P Pip x y p *> inv (h P Pip x y q)
+      \where {
+        \func h (P : \Type) (Pip : isProp P) (x y : P) (p : x = y) : p = Pip x y => l2 (J (\lam w r => r = Pip x w *> inv (Pip w w)) (inv (l1 (Pip x x))) (p *> inv (Pip y y)))
+        \func l1 {A : \Type} {x y : A} (p : x = y) : p *> inv p = idp \elim p
+          | idp => idp
+        \func l2 {A : \Type} {x y z : A} {p q : x = y} {s : y = z} (r : p *> s = q *> s) : p = q \elim s
+          | idp => r
+      }
+  }
+
+\func Prop1=Prop2 : Prop1 = Prop2 => QEquiv.ret {univalence {Prop1} {Prop2}} (QEquiv'->Equiv (Prop1-to-Prop2, Prop2-to-Prop1, Prop1-to-Prop2-to-Prop1, Prop2-to-Prop1-to-Prop2))
 
 -- Можно сделать только одно из упражнений 6a,6b на выбор.
 -- 6a. Тип С называется когенератором, если для любых множеств A и B и любых функция f,g : A -> B верно, что если h `o` f = h `o` g для всех h : B -> C, то f = g.
@@ -39,11 +101,37 @@
 
 \func isInjective (X : \Type) => \Pi {A B : \Type} (f : A -> X) (i : A -> B) (p : isInj i) -> \Sigma (l : B -> X) (l `o` i = f)
 
-\func Prop-isInjective : isInjective \Prop => {?}
+\func Prop-isInjective : isInjective \Prop => \lam {A} {B} f i iii => (\lam b => ∃ (a : A) (i a = b) (f a), ext (\lam a => ext (\lam x => \case x \with { | inP x' => transport id (pmap f (iii x'.1 a x'.2)) x'.3 }, \lam x => inP (a, idp, x))))
 
 -- Можно сделать только одно из упражнений 7a,7b на выбор.
 -- 7a. Докажите, что (Bool = Bool) = Bool.
 
-\func BoolAut : (Bool = Bool) = Bool => {?}
+\func BoolAut : (Bool = Bool) = Bool => univalence.ret (transEquiv (QEquiv.fromEquiv univalence) (QEquiv'->Equiv (
+  \lam (e : Equiv {Bool} {Bool}) => e true,
+  \lam b => \case b \with { | true => QEquiv'->Equiv (id, id, id2=id, id2=id) | false => QEquiv'->Equiv (not, not, not2=id, not2=id) },
+  \lam (e : Equiv {Bool} {Bool}) => cases (eqsForEquivBoolBool e, e true arg addPath) \with {
+    | inl q, false, p => \case inv p *> pmap (\lam (e' : Equiv {Bool} {Bool}) => e'.f true) q
+    | inl q, true,  p => inv q
+    | inr q, false, p => inv q
+    | inr q, true,  p => \case inv p *> pmap (\lam (e' : Equiv {Bool} {Bool}) => e'.f true) q
+  },
+  \lam b => cases b \with {
+    | false => idp
+    | true => idp
+  })))
+  \where {
+    \func not2=id (b : Bool) : not (not b) = b \elim b
+      | false => idp
+      | true => idp
+    \func id2=id (b : Bool) : id (id b) = b => idp
+    \func eqsForQEquiv'BoolBool (qe : QEquiv' Bool Bool) : (qe = (id, id, id2=id, id2=id)) `Or` (qe = (not, not, not2=id, not2=id)) => cases (qe.1 true arg addPath) \with {
+      | false, p => inr (ext (ext (\lam b => cases b \with { | true => p | false => cases (qe.1 false arg addPath) \with { | false, p' => inv (qe.3 false) *> pmap qe.2 (p' *> inv p) *> qe.3 true | true, p' => idp } }), ext (\lam b => cases b \with { | true => cases (qe.2 true arg addPath) \with { | true, p' => inv (qe.4 true) *> pmap qe.1 p' *> p | false, p' => idp } | false => pmap qe.2 (inv p) *> qe.3 true })))
+      | true,  p => inl (ext (ext (\lam b => cases b \with { | true => p | false => cases (qe.1 false arg addPath) \with { | false, p' => idp | true, p' => inv (qe.3 true) *> pmap qe.2 (p *> inv p') *> qe.3 false } }), ext (\lam b => cases b \with { | true => pmap qe.2 (inv p) *> qe.3 true | false => cases (qe.2 false arg addPath) \with { | true, p' => inv p *> inv (pmap qe.1 p') *> qe.4 false | false, p' => idp } })))
+    }
+    \func eqsForEquivBoolBool (e : Equiv {Bool} {Bool}) : (e = QEquiv'->Equiv (id, id, id2=id, id2=id)) `Or` (e = QEquiv'->Equiv (not, not, not2=id, not2=id)) => cases (eqsForQEquiv'BoolBool (Equiv->QEquiv' e)) \with {
+      | inl p => inl (inv (Equiv->QEquiv'->Equiv e) *> pmap QEquiv'->Equiv p)
+      | inr p => inr (inv (Equiv->QEquiv'->Equiv e) *> pmap QEquiv'->Equiv p)
+    }
+  }
 
 -- 7b. Докажите, что (n+m)-элементное множество равно размеченному объединению n- и m-элементных множеств.
