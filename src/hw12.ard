@@ -1,15 +1,41 @@
+\import Data.Bool
+\import Data.List
+\import Function
 \import Logic
+\import Meta
+\import Paths
 \import lect12
 
 -- 1. Определите функцию negPred : Int -> Int такую, что negPred x = x, если x > 0, и negPred x = x - 1, если x <= 0.
 
-\func negPred (x : Int) : Int => {?}
+\func negPred (x : Int) : Int \elim x
+  | pos (suc x) => pos (suc x)
+  | pos 0 => neg 1
+  | neg x => neg (suc x)
 
 -- 2. Определите функции сложения и умножения для Int.
 
-\func \infixl 6 + (x y : Int) : Int => {?}
+\func \infixl 6 + (x y : Int) : Int \elim x, y
+  | pos x, pos y => pos (x Nat.+ y)
+  | pos x, neg (suc y) => diff x (suc y)
+  | neg (suc x), pos y => diff y (suc x)
+  | neg (suc x), neg (suc y) => neg (suc (suc (x Nat.+ y)))
+  \where {
+    \func diff (x y : Nat) : Int \elim x, y
+      | 0, y => neg y
+      | x, 0 => pos x
+      | suc x, suc y => diff x y
+  }
 
-\func \infixl 7 * (x y : Int) : Int => {?}
+\func \infixl 7 * (x y : Int) : Int => sign x (sign y (pos (abs x Nat.* abs y)))
+  \where {
+    \func abs (x : Int) : Nat \elim x
+      | pos x => x
+      | neg x => x
+    \func sign (x : Int) : Int -> Int \elim x
+      | pos x => id
+      | neg (suc x) => negative
+  }
 
 -- 3. Определите тип данных BinNat для бинарных натуральных чисел.
 --    У него должно быть три конструктора: для 0, для чисел вида 2*n и чисел вида 2*n+1.
@@ -17,6 +43,11 @@
 --    Используйте типы данных с условиями, чтобы вычислительно отождествить различные нули.
 
 \data BinNat
+  | binZero
+  | binShift BinNat \with {
+    | binZero => binZero
+  }
+  | binShift+1 BinNat
 
 -- 4. Докажите, что функция pred сюръективна.
 
@@ -24,11 +55,11 @@
   | 0 => 0
   | suc n => n
 
-\func pred-is-sur : isSur pred => {?}
+\func pred-is-sur : isSur pred => \lam x => inP (suc x, idp)
 
 -- 5. Докажите, что функция suc не сюръективна.
 
-\func suc-is-not-sur (p : isSur suc) : Empty => {?}
+\func suc-is-not-sur (p : isSur suc) : Empty => \case p 0 \with { | inP p0 => \case p0.2 }
 
 -- 6. Пусть f : A -> B и g : B -> C ─ некоторые функции.
 --    Докажите, что если f и g сюръективны, то g `o` f также сюръективна.
@@ -36,13 +67,22 @@
 
 \func \fixr 9 o {A B C : \Type} (g : B -> C) (f : A -> B) => \lam a => g (f a)
 
-\func o-sur {A B C : \Type} (f : A -> B) (g : B -> C) (p : isSur f) (q : isSur g) : isSur (g `o` f) => {?}
+\func o-sur {A B C : \Type} (f : A -> B) (g : B -> C) (p : isSur f) (q : isSur g) : isSur (g `o` f) => \lam c => \case q c \with { | inP (b, gb=c) => \case p b \with { | inP (a, fa=b) => inP (a, pmap g fa=b *> gb=c) } }
 
-\func o-sur' {A B C : \Type} (f : A -> B) (g : B -> C) (p : isSur (g `o` f)) : isSur g => {?}
+\func o-sur' {A B C : \Type} (f : A -> B) (g : B -> C) (p : isSur (g `o` f)) : isSur g => \lam c => \case p c \with { | inP (a, gfa=c) => inP (f a, gfa=c) }
 
 -- 7. Определите множество конечных подмножеств множества A, то есть списков элементов A с точностью до перестановок и повторений элементов.
 
+\data SetR {A : \Set} (xs ys : List A) \elim xs, ys
+  | nil, nil => setr-nil
+  | :: x xs, :: y ys => setr-cons (x = y) (SetR xs ys)
+  | xs, ys => setr-trans {zs : List A} (SetR xs zs) (SetR zs ys)
+  | :: x (:: x' xs), :: y (:: y' ys) => setr-swap (x = y') (x' = y) (xs = ys)
+  | :: x (:: x' xs), :: y ys => setr-dupL (x = y) (x' = y) (SetR xs ys)
+  | :: x xs, :: y (:: y' ys) => setr-dupR (x = y) (x = y') (SetR xs ys)
+
 \data Set (A : \Set) : \Set
+  | set (Quotient (List A) SetR)
 
 -- 8. Докажите теорему Кантора.
 
@@ -64,10 +104,135 @@
 -- Optional
 -- 9. Постройте функции Nat -> BinNat и BinNat -> Nat и докажите, что они взаимно обратны.
 
-\func NatToBinNat (n : Nat) : BinNat => {?}
+\func Nat+-assoc {x y z : Nat} : (x Nat.+ y) Nat.+ z = x Nat.+ (y Nat.+ z) \elim x
+  | 0 => idp
+  | suc x => pmap suc Nat+-assoc
 
-\func BinNatToNat (b : BinNat) : Nat => {?}
+\func NatToBinNat (n : Nat) : BinNat => go n n
+  \where {
+    \func mod2 (n : Nat) : Bool \elim n
+      | 0 => false
+      | 1 => true
+      | suc (suc n) => mod2 n
+    \func div2 (n : Nat) : Nat \elim n
+      | 0 => 0
+      | 1 => 0
+      | suc (suc n) => suc (div2 n)
+    \func go (m : Nat) (n : Nat) : BinNat \elim m, n
+      | _, 0 => binZero
+      | 0, _ => binZero
+      | suc m, n => \case mod2 n \with {
+        | false => binShift (go m (div2 n))
+        | true => binShift+1 (go m (div2 n))
+      }
+    \func lem1 (n : Nat) : \Sigma (k : Nat) (n = div2 n Nat.+ k) \elim n
+      | 0 => (0, idp)
+      | 1 => (1, idp)
+      | suc (suc n) => \let (k, q) => lem1 n \in (suc k, pmap (suc `o` suc) q)
+    \func lem1' (n : Nat) : \Sigma (k : Nat) (n = div2 (suc n) Nat.+ k) \elim n
+      | 0 => (0, idp)
+      | suc n => \let (k, q) => lem1 n \in (k, pmap suc q)
+    \func lem2 (n : Nat) : go n 0 = binZero \elim n
+      | 0 => idp
+      | suc n => idp
+    \func lem2' {m n1 k1 n2 k2 : Nat} (q1 : n1 = m Nat.+ k1) (q2 : n2 = m Nat.+ k2) : go n1 m = go n2 m \elim m, n1, n2
+      | 0, n1, n2 => lem2 n1 *> inv (lem2 n2)
+      | suc m, 0, _ => \case q1
+      | suc m, _, 0 => \case q2
+      | suc m, suc n1, suc n2 => cases (mod2 (suc m)) \with {
+        | false => pmap binShift (lem2' {div2 (suc m)} {n1} (pmap pred q1 *> pmap (Nat.`+ k1) (lem1' m).2 *> Nat+-assoc) (pmap pred q2 *> pmap (Nat.`+ k2) (lem1' m).2 *> Nat+-assoc))
+        | true => pmap binShift+1 (lem2' {div2 (suc m)} {n1} (pmap pred q1 *> pmap (Nat.`+ k1) (lem1' m).2 *> Nat+-assoc) (pmap pred q2 *> pmap (Nat.`+ k2) (lem1' m).2 *> Nat+-assoc))
+      }
+    \func lem3 (n : Nat) (p : mod2 (suc n) = false) : NatToBinNat (suc n) = binShift (NatToBinNat (div2 (suc n))) \elim n
+      | 0 => \case p
+      | 1 => idp
+      | suc (suc n) => (cases (mod2 (suc n) arg addPath) \with {
+        | false, _ => pmap binShift (lem2' {suc (div2 (suc n))} {suc (suc n)} {(lem1' (suc (suc n))).1} {suc (div2 (suc n))} {0} (lem1' (suc (suc n))).2 idp)
+        | true, p' => \case inv p *> p'
+      } : go (suc (suc (suc n))) (suc (suc (suc n))) = binShift (NatToBinNat (suc (div2 (suc n)))))
+    \func lem3' (n : Nat) (p : mod2 (suc n) = true) : NatToBinNat (suc n) = binShift+1 (NatToBinNat (div2 (suc n))) \elim n
+      | 0 => idp
+      | 1 => \case p
+      | suc (suc n) => (cases (mod2 (suc n) arg addPath) \with {
+        | false, p' => \case inv p *> p'
+        | true,  _  => pmap binShift+1 (lem2' {suc (div2 (suc n))} {suc (suc n)} {(lem1' (suc (suc n))).1} {suc (div2 (suc n))} {0} (lem1' (suc (suc n))).2 idp)
+      } : go (suc (suc (suc n))) (suc (suc (suc n))) = binShift+1 (NatToBinNat (suc (div2 (suc n)))))
+    \func lem4 (n : Nat) (p : mod2 n = false) : 2 Nat.* div2 n = n \elim n
+      | 0 => idp
+      | 1 => \case p
+      | suc (suc n) => pmap (suc `o` suc) (lem4 n p)
+    \func lem4' (n : Nat) (p : mod2 n = true) : suc (2 Nat.* div2 n) = n \elim n
+      | 0 => \case p
+      | 1 => idp
+      | suc (suc n) => pmap (suc `o` suc) (lem4' n p)
+    \func lem5 (n : Nat) : mod2 (2 Nat.* n) = false \elim n
+      | 0 => idp
+      | suc n => lem5 n
+    \func lem5' (n : Nat) : mod2 (suc (2 Nat.* n)) = true \elim n
+      | 0 => idp
+      | suc n => lem5' n
+    \func lem6 (n : Nat) : div2 (2 Nat.* n) = n \elim n
+      | 0 => idp
+      | suc n => pmap suc (lem6 n)
+    \func lem6' (n : Nat) : div2 (suc (2 Nat.* n)) = n \elim n
+      | 0 => idp
+      | suc n => pmap suc (lem6' n)
+  }
 
-\func nbn (n : Nat) : BinNatToNat (NatToBinNat n) = n => {?}
+\func BinNatToNat (b : BinNat) : Nat \elim b
+  | binZero => 0
+  | binShift b => 2 Nat.* BinNatToNat b
+  | binShift+1 b => suc (2 Nat.* BinNatToNat b)
+  \where {
+    \func l2x=0->x=0 (x : Nat) (q : 2 Nat.* x = 0) : x = 0 \elim x
+      | 0 => idp
+      | suc x => \case q
+    \func lem1 (b : BinNat) (q : BinNatToNat b = 0) : b = binZero \elim b
+      | binZero => idp
+      | binShift b => pmap binShift (lem1 b (l2x=0->x=0 (BinNatToNat b) q))
+      | binShift+1 b => \case q
+    \func lem2 (b : BinNat) : NatToBinNat.mod2 (BinNatToNat (binShift b)) = false => NatToBinNat.lem5 (BinNatToNat b)
+  }
 
-\func bnb (b : BinNat) : NatToBinNat (BinNatToNat b) = b => {?}
+\func nbn (n : Nat) : BinNatToNat (NatToBinNat n) = n
+  => induction' (\lam n' i => cases (n' arg addPath) \with {
+    | 0, _ => idp
+    | suc n, q => cases (NatToBinNat.mod2 (suc n) arg addPath) \with {
+      | false, p => pmap BinNatToNat (NatToBinNat.lem3 n p) *> pmap (Nat.* 2) (i (NatToBinNat.div2 (suc n)) (NatToBinNat.lem1' n).1 (q *> pmap suc (NatToBinNat.lem1' n).2)) *> NatToBinNat.lem4 (suc n) p
+      | true,  p => pmap BinNatToNat (NatToBinNat.lem3' n p) *> pmap (suc `o` (Nat.* 2)) (i (NatToBinNat.div2 (suc n)) (NatToBinNat.lem1' n).1 (q *> pmap suc (NatToBinNat.lem1' n).2)) *> NatToBinNat.lem4' (suc n) p
+    }
+  }) n
+  \where {
+    \func induction' {P : Nat -> \Type} (s : \Pi (n' : Nat) -> (\Pi (m' k' : Nat) -> (n' = suc (m' Nat.+ k')) -> P m') -> P n') (n : Nat) : P n => induction'' s n n 0 idp
+    \func induction'' {P : Nat -> \Type} (s : \Pi (n' : Nat) -> (\Pi (m' k' : Nat) -> (n' = suc (m' Nat.+ k')) -> P m') -> P n') (n m k : Nat) (q : n = m Nat.+ k) : P m \elim n
+      | 0 => cases (m, q) \with {
+        | 0, q => s 0 (\lam m' k' q' => \case q')
+        | suc _, q => \case q
+      }
+      | suc n => cases (k, q) \with {
+        | 0, q => s m (\lam m' k' q' => induction'' s n m' k' (pmap pred (q *> q')))
+        | suc k, q => induction'' s n m k (pmap pred q)
+      }
+  }
+
+\func bnb (b : BinNat) : NatToBinNat (BinNatToNat b) = b \elim b
+  | binZero => idp
+  | binShift b => (cases (BinNatToNat (binShift b) arg addPath) \with {
+    | 0, p' => pmap binShift (inv (BinNatToNat.lem1 b (BinNatToNat.l2x=0->x=0 (BinNatToNat b) p')))
+    | suc x, p' => cases (NatToBinNat.mod2 (suc x) arg addPath) \with {
+      | false, _ => pmap binShift (pmap (NatToBinNat.go x `o` NatToBinNat.div2) (inv p') *> pmap (NatToBinNat.go x) (NatToBinNat.lem6 (BinNatToNat b)) *> NatToBinNat.lem2' {BinNatToNat b} {x} {pred (BinNatToNat b)} {BinNatToNat b} {0} (lsx=2y->x=y+py (inv p')) idp *> bnb b)
+      | true,  p => \case inv (BinNatToNat.lem2 b) *> pmap NatToBinNat.mod2 p' *> p
+    }
+  } : NatToBinNat.go (2 Nat.* BinNatToNat b) (2 Nat.* BinNatToNat b) = binShift b)
+  | binShift+1 b => (cases (NatToBinNat.mod2 (suc (2 Nat.* BinNatToNat b)) arg addPath) \with {
+    | false, p => \case inv (NatToBinNat.lem5' (BinNatToNat b)) *> p
+    | true,  _ => pmap binShift+1 (pmap (NatToBinNat.go (2 Nat.* BinNatToNat b)) (NatToBinNat.lem6' (BinNatToNat b)) *> NatToBinNat.lem2' {BinNatToNat b} {2 Nat.* BinNatToNat b} {BinNatToNat b} {BinNatToNat b} {0} l2x=x+x idp *> bnb b)
+  } : NatToBinNat.go (suc (2 Nat.* BinNatToNat b)) (suc (2 Nat.* BinNatToNat b)) = binShift+1 b)
+  \where {
+    \func l2x=x+x {x : Nat} : 2 Nat.* x = x Nat.+ x \elim x
+      | 0 => idp
+      | suc x => pmap (suc `o` suc) l2x=x+x
+    \func lsx=2y->x=y+py {x y : Nat} (p : suc x = 2 Nat.* y) : x = y Nat.+ pred y \elim y
+      | 0 => \case p
+      | suc y => pmap pred p *> pmap suc l2x=x+x
+  }
